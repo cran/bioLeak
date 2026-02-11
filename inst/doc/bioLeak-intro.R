@@ -298,6 +298,10 @@ metrics_safe
 # Per-fold metrics (first 6 rows)
 head(fit_safe@metrics)
 
+## ----fit-fold-status----------------------------------------------------------
+# Fold-level diagnostics for reproducible troubleshooting
+head(fit_safe@info$fold_status, 5)
+
 ## ----multiclass-example-------------------------------------------------------
 if (requireNamespace("ranger", quietly = TRUE)) {
   set.seed(11)
@@ -487,61 +491,74 @@ if (requireNamespace("workflows", quietly = TRUE)) {
 }
 
 ## ----tune-example-------------------------------------------------------------
-library(bioLeak)
-library(parsnip)
-library(recipes)
-library(tune)
-library(glmnet)
+if (requireNamespace("parsnip", quietly = TRUE) &&
+    requireNamespace("recipes", quietly = TRUE) &&
+    requireNamespace("tune", quietly = TRUE) &&
+    requireNamespace("glmnet", quietly = TRUE)) {
+  # --- 1. Create Data ---
+  set.seed(123)
+  N <- 60
+  df <- data.frame(
+    subject = factor(rep(paste0("S", 1:20), length.out = N)),
+    outcome = factor(sample(c("ClassA", "ClassB"), N, replace = TRUE)),
+    x1 = rnorm(N),
+    x2 = rnorm(N),
+    x3 = rnorm(N)
+  )
 
-# --- 1. Create Data  ---
-set.seed(123)
-N <- 60
-df <- data.frame(
-  subject = factor(rep(paste0("S", 1:20), length.out = N)), 
-  # FIX: Use sample() to randomize outcome and avoid perfect subject-confounding
-  outcome = factor(sample(c("ClassA", "ClassB"), N, replace = TRUE)),
-  x1 = rnorm(N),
-  x2 = rnorm(N),
-  x3 = rnorm(N)
-)
+  # --- 2. Generate Nested Splits ---
+  set.seed(1)
+  nested_splits <- make_split_plan(
+    df,
+    outcome = "outcome",
+    mode = "subject_grouped",
+    group = "subject",
+    v = 3,
+    nested = TRUE
+  )
 
-# --- 2. Generate Nested Splits ---
-set.seed(1)
-nested_splits <- make_split_plan(
-  df, 
-  outcome = "outcome", 
-  mode = "subject_grouped", 
-  group = "subject", 
-  v = 3, 
-  nested = TRUE  
-)
+  # --- 3. Define Recipe & Model ---
+  rec <- recipes::recipe(outcome ~ x1 + x2 + x3, data = df) |>
+    recipes::step_impute_median(recipes::all_numeric_predictors()) |>
+    recipes::step_normalize(recipes::all_numeric_predictors())
 
-# --- 3. Define Recipe & Model ---
-rec <- recipes::recipe(outcome ~ x1 + x2 + x3, data = df) |>
-  recipes::step_impute_median(recipes::all_numeric_predictors()) |>
-  recipes::step_normalize(recipes::all_numeric_predictors())
+  spec_tune <- parsnip::logistic_reg(
+    penalty = tune::tune(),
+    mixture = 1,
+    mode = "classification"
+  ) |>
+    parsnip::set_engine("glmnet")
 
-spec_tune <- parsnip::logistic_reg(
-  penalty = tune::tune(),
-  mixture = 1,
-  mode = "classification"
-) |>
-  parsnip::set_engine("glmnet")
+  # --- 4. Run Tuning ---
+  tuned <- tune_resample(
+    df,
+    outcome = "outcome",
+    splits = nested_splits,
+    learner = spec_tune,
+    preprocess = rec,
+    inner_v = 2,
+    grid = 3,
+    metrics = c("auc", "accuracy"),
+    selection = "one_std_err",
+    refit = TRUE,
+    seed = 14
+  )
 
-# --- 4. Run Tuning ---
-tuned <- tune_resample(
-  df,
-  outcome = "outcome",
-  splits = nested_splits,
-  learner = spec_tune,
-  preprocess = rec,
-  inner_v = 2,
-  grid = 3,
-  metrics = c("auc", "accuracy"),
-  seed = 14
-)
-  
-summary(tuned)
+  summary(tuned)
+} else {
+  cat("parsnip/recipes/tune/glmnet not installed; skipping nested tuning example.\n")
+}
+
+## ----tune-diagnostics---------------------------------------------------------
+if (exists("tuned")) {
+  # Fold-level status from the outer loop
+  head(tuned$fold_status, 5)
+
+  # Final tuned model is available when refit = TRUE
+  is.null(tuned$final_model)
+} else {
+  cat("Nested tuning object not available (dependencies missing).\n")
+}
 
 ## ----fit-xgboost--------------------------------------------------------------
 if (requireNamespace("parsnip", quietly = TRUE) &&
@@ -557,9 +574,8 @@ if (requireNamespace("parsnip", quietly = TRUE) &&
   ) |>
     parsnip::set_engine("xgboost")
   
-  # 2. Define a Recipe (CORRECTED)
-  # FIX: Define the recipe on data WITHOUT 'subject'.
-  # This matches the data bioLeak passes (which has subject removed).
+  # 2. Define a recipe on data without 'subject' because split metadata
+  # columns are excluded from predictors by fit_resample().
   df_for_rec <- df[, !names(df) %in% "subject"]
   
   rec_xgb <- recipes::recipe(outcome ~ ., data = df_for_rec) |>
@@ -710,11 +726,11 @@ if (requireNamespace("ranger", quietly = TRUE) &&
     ) |>
         parsnip::set_engine("ranger")
     
-    # 2. Fit with CORRECT splits
+    # 2. Fit using the current split object
     fit_multi <- fit_resample(
         df,
         outcome = "outcome",
-        splits = nested_splits,  # <--- FIX: Use the valid split object
+        splits = nested_splits,
         learner = list(glm = spec_glm, rf = spec_rf),
         metrics = "auc"
     )

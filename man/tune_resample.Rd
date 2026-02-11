@@ -20,8 +20,12 @@ tune_resample(
   inner_seed = NULL,
   control = NULL,
   parallel = FALSE,
+  refit = FALSE,
   seed = 1,
-  split_cols = "auto"
+  split_cols = "auto",
+  tune_threshold = FALSE,
+  threshold_grid = seq(0.1, 0.9, by = 0.05),
+  threshold_metric = "accuracy"
 )
 }
 \arguments{
@@ -75,6 +79,9 @@ are not precomputed. Defaults to the outer split seed.}
 \item{parallel}{Logical; passed to [fit_resample()] when evaluating outer
 folds (single-fold, no refit).}
 
+\item{refit}{Logical; if TRUE, refits a final tuned workflow on the full
+dataset using hyperparameters selected from the best-performing outer fold.}
+
 \item{seed}{Integer seed for reproducibility.}
 
 \item{split_cols}{Optional named list/character vector or `"auto"` (default)
@@ -82,6 +89,18 @@ overriding group/batch/study/time column names when `splits` is an rsample
 object and its attributes are missing. `"auto"` falls back to common
 metadata column names (e.g., `group`, `subject`, `batch`, `study`, `time`).
 Supported names are `group`, `batch`, `study`, and `time`.}
+
+\item{tune_threshold}{Logical; when `TRUE` for binomial tasks, selects a
+probability threshold from inner-fold predictions and applies it only to the
+corresponding outer-fold evaluation.}
+
+\item{threshold_grid}{Numeric vector of thresholds in `[0, 1]` considered when
+`tune_threshold = TRUE`.}
+
+\item{threshold_metric}{Metric used to pick thresholds when
+`tune_threshold = TRUE`. Supported values are `"accuracy"`,
+`"balanced_accuracy"`, and `"f1"`, or a custom function with signature
+`function(truth, pred_class, prob, threshold)`.}
 }
 \value{
 A list of class `"LeakTune"` with components:
@@ -92,6 +111,9 @@ A list of class `"LeakTune"` with components:
   \item{best_params}{Best hyperparameters per outer fold.}
   \item{inner_results}{List of inner tuning results.}
   \item{outer_fits}{List of outer LeakFit objects.}
+  \item{thresholds}{Per-fold threshold choices when threshold tuning is enabled.}
+  \item{fold_status}{Outer-fold status log with stage, status, reason, and notes.}
+  \item{final_model}{Optional final workflow fit when `refit = TRUE`.}
   \item{info}{Metadata about the tuning run.}
 }
 \description{

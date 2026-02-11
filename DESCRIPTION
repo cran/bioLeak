@@ -1,7 +1,7 @@
 Package: bioLeak
 Type: Package
 Title: Leakage-Safe Modeling and Auditing for Genomic and Clinical Data
-Version: 0.1.0
+Version: 0.2.0
 Authors@R: c(
     person("Selcuk", "Korkmaz", role = c("aut","cre"), email = "selcukorkmaz@gmail.com",
            comment = c(ORCID = "0000-0003-4632-6850"))
@@ -16,8 +16,8 @@ URL: https://github.com/selcukorkmaz/bioLeak
 BugReports: https://github.com/selcukorkmaz/bioLeak/issues
 Encoding: UTF-8
 Depends: R (>= 4.3)
-Imports: digest, methods, stats, utils, SummarizedExperiment, graphics,
-        hardhat, parsnip
+Imports: digest, generics, methods, stats, utils, SummarizedExperiment,
+        graphics, hardhat, parsnip
 Suggests: BiocParallel, cli, dials, FNN, future, future.apply, ggplot2,
         glmnet, mice, missForest, pkgload, ranger, randomForest,
         recipes, RANN, rsample, tune, VIM, workflows, xgboost,
@@ -29,9 +29,9 @@ VignetteBuilder: knitr
 Config/testthat/edition: 3
 RoxygenNote: 7.3.3
 NeedsCompilation: no
-Packaged: 2026-02-03 22:05:49 UTC; selcuk
+Packaged: 2026-02-09 09:34:39 UTC; selcukkorkmaz
 Author: Selcuk Korkmaz [aut, cre] (ORCID:
     <https://orcid.org/0000-0003-4632-6850>)
 Maintainer: Selcuk Korkmaz <selcukorkmaz@gmail.com>
 Repository: CRAN
-Date/Publication: 2026-02-06 19:50:14 UTC
+Date/Publication: 2026-02-11 11:20:14 UTC

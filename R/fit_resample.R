@@ -41,6 +41,9 @@
 #' @param positive_class optional value indicating the positive class for binomial outcomes.
 #'   When set, the outcome levels are reordered so that \code{positive_class} is treated
 #'   as the positive class (level 2). If NULL, the second factor level is used.
+#' @param classification_threshold Numeric threshold in \code{[0, 1]} used to
+#'   convert binomial probabilities into class predictions for
+#'   \code{pred_class} and accuracy metrics. Ignored for non-binomial tasks.
 #' @param parallel logical, use future.apply for multicore execution
 #' @param refit logical, if TRUE retrain final model on full data
 #' @param seed integer, for reproducibility
@@ -73,7 +76,7 @@
 #'       preprocessing.}
 #'     \item{\code{info}}{List of additional metadata including \code{hash},
 #'       \code{metrics_used}, \code{class_weights}, \code{positive_class},
-#'       \code{sample_ids}, \code{refit}, \code{final_model} (refitted model if
+#'       \code{sample_ids}, \code{fold_status}, \code{refit}, \code{final_model} (refitted model if
 #'       \code{refit = TRUE}), \code{final_preprocess}, \code{learner_names},
 #'       and \code{perm_refit_spec} (for permutation-based audits).}
 #'   }
@@ -91,7 +94,9 @@
 #' learners, \code{learner_args[[name]]} may be a list with \code{fit} and
 #' \code{predict} sublists to pass distinct arguments to each stage. For binomial
 #' tasks, predictions and metrics assume the positive class is the second factor
-#' level; use \code{positive_class} to control this. Parsnip learners must support
+#' level; use \code{positive_class} to control this. Use
+#' \code{classification_threshold} to change the probability cutoff used for
+#' class labels and accuracy. Parsnip learners must support
 #' probability predictions for binomial metrics (AUC/PR-AUC/accuracy) and
 #' multiclass log-loss when requested.
 #' @examples
@@ -141,6 +146,7 @@ fit_resample <- function(x, outcome, splits,
                          metrics = c("auc", "pr_auc", "accuracy"),
                          class_weights = NULL,
                          positive_class = NULL,
+                         classification_threshold = 0.5,
                          parallel = FALSE,
                          refit = TRUE,
                          seed = 1,
@@ -148,7 +154,13 @@ fit_resample <- function(x, outcome, splits,
                          store_refit_data = TRUE) {
 
   set.seed(seed)
+  classification_threshold_supplied <- !missing(classification_threshold)
   learner_input <- learner
+  if (!is.numeric(classification_threshold) || length(classification_threshold) != 1L ||
+      !is.finite(classification_threshold) || classification_threshold < 0 ||
+      classification_threshold > 1) {
+    stop("classification_threshold must be a single numeric value in [0, 1].")
+  }
   if (is.null(custom_learners)) custom_learners <- list()
   if (!is.list(custom_learners)) {
     stop("custom_learners must be a named list of learner definitions.")
@@ -328,6 +340,8 @@ fit_resample <- function(x, outcome, splits,
   split_mode <- splits@mode
   split_time <- splits@info$time
   split_horizon <- splits@info$horizon %||% 0
+  split_purge <- splits@info$purge %||% 0
+  split_embargo <- splits@info$embargo %||% 0
   split_coldata <- splits@info$coldata
   time_vec <- NULL
   if (compact && identical(split_mode, "time_series")) {
@@ -404,6 +418,9 @@ fit_resample <- function(x, outcome, splits,
     if (!is.null(positive_class)) {
       warning("positive_class is ignored for multiclass tasks.")
     }
+    if (classification_threshold_supplied) {
+      warning("classification_threshold is ignored for multiclass tasks.")
+    }
   } else if (task == "gaussian") {
     if (!is.numeric(yall)) {
       yall <- as.numeric(yall)
@@ -416,6 +433,9 @@ fit_resample <- function(x, outcome, splits,
     if (!is.null(positive_class)) {
       warning("positive_class is ignored for gaussian tasks.")
     }
+    if (classification_threshold_supplied) {
+      warning("classification_threshold is ignored for gaussian tasks.")
+    }
   } else {
     class_levels <- NULL
     if (!inherits(yall, "Surv")) {
@@ -426,6 +446,9 @@ fit_resample <- function(x, outcome, splits,
     }
     if (!is.null(positive_class)) {
       warning("positive_class is ignored for survival tasks.")
+    }
+    if (classification_threshold_supplied) {
+      warning("classification_threshold is ignored for survival tasks.")
     }
   }
 
@@ -525,7 +548,7 @@ fit_resample <- function(x, outcome, splits,
       return(NA_real_)
     }
     if (name == "accuracy" && task == "binomial") {
-      return(mean((pred >= 0.5) == as.logical(yb)))
+      return(mean((pred >= classification_threshold) == as.logical(yb)))
     }
     if (name == "rmse" && task == "gaussian")
       return(sqrt(mean((as.numeric(y) - pred)^2)))
@@ -727,7 +750,7 @@ fit_resample <- function(x, outcome, splits,
           }
         }
         pred <- as.numeric(prob_df[[pos_col]])
-        pred_class <- factor(ifelse(pred >= 0.5, class_levels[2], class_levels[1]),
+        pred_class <- factor(ifelse(pred >= classification_threshold, class_levels[2], class_levels[1]),
                              levels = class_levels)
         return(list(pred = pred, pred_class = pred_class, fit = fit))
       }
@@ -866,7 +889,7 @@ fit_resample <- function(x, outcome, splits,
       pr   <- predict(rg, dfte)
       if (task == "binomial") {
         pred <- pr$predictions[, 2]
-        pred_class <- factor(ifelse(pred >= 0.5, class_levels[2], class_levels[1]),
+        pred_class <- factor(ifelse(pred >= classification_threshold, class_levels[2], class_levels[1]),
                              levels = class_levels)
         return(list(pred = pred, pred_class = pred_class, fit = rg))
       }
@@ -887,7 +910,7 @@ fit_resample <- function(x, outcome, splits,
     if (!requireNamespace("workflows", quietly = TRUE)) {
       stop("Package 'workflows' is required when learner is a workflow.")
     }
-    fit <- try(workflows::fit(learner_obj, data = dftr), silent = TRUE)
+    fit <- try(generics::fit(learner_obj, data = dftr), silent = TRUE)
     if (inherits(fit, "try-error")) {
       err_msg <- attr(fit, "condition")$message
       stop(sprintf("Workflow learner '%s' failed to fit: %s", learner_label, err_msg))
@@ -909,7 +932,7 @@ fit_resample <- function(x, outcome, splits,
         }
       }
       pred <- as.numeric(prob_df[[pos_col]])
-      pred_class <- factor(ifelse(pred >= 0.5, class_levels[2], class_levels[1]),
+      pred_class <- factor(ifelse(pred >= classification_threshold, class_levels[2], class_levels[1]),
                            levels = class_levels)
       return(list(pred = pred, pred_class = pred_class, fit = fit))
     }
@@ -964,16 +987,14 @@ fit_resample <- function(x, outcome, splits,
       if (is.null(time_vec) || !length(time_vec)) {
         stop("time_series compact splits require time column values.")
       }
-      if (!length(test)) {
-        train <- integer(0)
-      } else {
-        tmin <- min(time_vec[test])
-        if (split_horizon == 0) {
-          train <- which(time_vec < tmin)
-        } else {
-          train <- which(time_vec <= (tmin - split_horizon))
-        }
-      }
+      train <- .bio_time_series_train_indices(
+        time_vec = time_vec,
+        test_idx = test,
+        candidate_idx = seq_len(nrow(Xall)),
+        horizon = split_horizon,
+        purge = split_purge,
+        embargo = split_embargo
+      )
     } else {
       train <- setdiff(seq_len(nrow(Xall)), test)
     }
@@ -1109,7 +1130,7 @@ fit_resample <- function(x, outcome, splits,
         } else if (is.factor(model$pred) || is.character(model$pred)) {
           factor(as.character(model$pred), levels = class_levels)
         } else {
-          factor(ifelse(model$pred >= 0.5, class_levels[2], class_levels[1]),
+          factor(ifelse(model$pred >= classification_threshold, class_levels[2], class_levels[1]),
                  levels = class_levels)
         }
       } else if (task == "multiclass") {
@@ -1195,6 +1216,7 @@ fit_resample <- function(x, outcome, splits,
 
   folds <- splits@indices
   nfold <- length(folds)
+  fold_errors <- rep(NA_character_, nfold)
 
   # progress bar --------------------------------------------------------------
   pb <- utils::txtProgressBar(min = 0, max = nfold, style = 3)
@@ -1202,6 +1224,7 @@ fit_resample <- function(x, outcome, splits,
   progress_wrap <- function(f) {
     fold_id <- f$fold_seq %||% f$fold
     res <- tryCatch(do_fold(f), error = function(e) {
+      fold_errors[[fold_id]] <<- conditionMessage(e)
       warning(sprintf("Fold %s failed: %s", fold_id, e$message)); NULL
     })
     pb_counter <<- pb_counter + 1
@@ -1233,9 +1256,12 @@ fit_resample <- function(x, outcome, splits,
   lears <- list()
   featn <- NULL
   audit_rows <- list()
+  fold_status_rows <- vector("list", length(out))
 
   for (fold_idx in seq_along(out)) {
     fold_res <- out[[fold_idx]]
+    learner_total <- length(learner_names)
+    learner_success <- 0L
     if (is.null(fold_res)) next
     fold_info <- resolve_fold_indices(folds[[fold_idx]])
     fold_id <- fold_idx
@@ -1243,7 +1269,10 @@ fit_resample <- function(x, outcome, splits,
       res <- fold_res[[ln]]
       if (is.null(res)) next
       m <- res$metrics
-      if (all(is.na(m))) next
+      if (all(is.na(m))) {
+        next
+      }
+      learner_success <- learner_success + 1L
       metric_row <- c(list(fold = fold_id, learner = ln), as.list(m))
       met_rows[[length(met_rows) + 1]] <- as.data.frame(metric_row,
                                                         row.names = NULL,
@@ -1274,7 +1303,37 @@ fit_resample <- function(x, outcome, splits,
         row.names = NULL
       )
     }
+    all_preds_empty <- length(fold_res) > 0 && all(vapply(fold_res, function(res) {
+      is.null(res$pred) || nrow(res$pred) == 0L
+    }, logical(1)))
+    fold_status_rows[[fold_idx]] <- data.frame(
+      fold = fold_idx,
+      stage = if (learner_success > 0L) "fold_run" else "fold_precheck",
+      status = if (learner_success > 0L) "success" else "skipped",
+      reason = if (learner_success > 0L) NA_character_ else if (all_preds_empty) {
+        "single_class_training"
+      } else {
+        "no_valid_metrics"
+      },
+      notes = sprintf("Successful learners: %d/%d", learner_success, learner_total),
+      stringsAsFactors = FALSE
+    )
   }
+
+  for (fold_idx in seq_along(out)) {
+    if (!is.null(fold_status_rows[[fold_idx]])) next
+    err_note <- fold_errors[[fold_idx]]
+    if (is.na(err_note)) err_note <- "Fold failed before producing any learner results."
+    fold_status_rows[[fold_idx]] <- data.frame(
+      fold = fold_idx,
+      stage = "fold_run",
+      status = "failed",
+      reason = "fold_error",
+      notes = err_note,
+      stringsAsFactors = FALSE
+    )
+  }
+  fold_status_df <- do.call(rbind, fold_status_rows)
 
   if (!length(met_rows)) {
     stop("No successful folds were completed. Check learner and preprocessing settings.")
@@ -1327,7 +1386,7 @@ fit_resample <- function(x, outcome, splits,
       final_guard <- list(type = "recipe", recipe = recipe_prep)
     } else {
       df_full <- make_fold_df(Xall, yall)
-      final_model <- workflows::fit(learner_obj, data = df_full)
+      final_model <- generics::fit(learner_obj, data = df_full)
       final_guard <- list(type = "workflow")
     }
   }
@@ -1335,18 +1394,19 @@ fit_resample <- function(x, outcome, splits,
   # assemble LeakFit object ---------------------------------------------------
   perm_refit_spec <- NULL
   if (isTRUE(store_refit_data)) {
-    perm_refit_spec <- list(
-      x = x,
-      outcome = outcome,
-      preprocess = preprocess,
-      learner = learner_input,
-      learner_args = learner_args,
-      custom_learners = custom_learners,
-      class_weights = class_weights,
-      positive_class = positive_class,
-      parallel = parallel
-    )
-  }
+      perm_refit_spec <- list(
+        x = x,
+        outcome = outcome,
+        preprocess = preprocess,
+        learner = learner_input,
+        learner_args = learner_args,
+        custom_learners = custom_learners,
+        class_weights = class_weights,
+        positive_class = positive_class,
+        classification_threshold = classification_threshold,
+        parallel = parallel
+      )
+    }
 
   new("LeakFit",
       splits = splits,
@@ -1364,9 +1424,11 @@ fit_resample <- function(x, outcome, splits,
                   metrics_used = metrics_used,
                   class_weights = class_weights,
                   positive_class = if (task == "binomial") class_levels[2] else NULL,
+                  classification_threshold = if (task == "binomial") classification_threshold else NULL,
                   sample_ids = ids,
                   fold_seeds = setNames(seed + seq_along(folds),
                                         paste0("fold", seq_along(folds))),
+                  fold_status = fold_status_df,
                   refit = refit,
                   final_model = final_model,
                   final_preprocess = final_guard,
