@@ -119,7 +119,8 @@ fit <- fit_resample(df, outcome = "outcome", splits = splits,
 audit <- audit_leakage(fit, metric = "auc", B = 5, perm_stratify = FALSE)
 
 if (requireNamespace("rmarkdown", quietly = TRUE) &&
-    requireNamespace("ggplot2", quietly = TRUE)) {
+    requireNamespace("ggplot2", quietly = TRUE) &&
+    isTRUE(rmarkdown::pandoc_available("1.12.3"))) {
   out_file <- audit_report(audit, output_dir = tempdir(), quiet = TRUE)
   out_file
 }

@@ -234,6 +234,18 @@ summary.LeakAudit <- function(object, digits = 3, ...) {
     cat("No near-duplicates detected.\n\n")
   }
 
+  # --- Mechanism risk assessment ---
+  mech <- object@info$mechanism_summary %||% data.frame()
+  if (is.data.frame(mech) && nrow(mech) > 0) {
+    cat("Mechanism Risk Assessment:\n")
+    cols <- intersect(c("mechanism_class", "flagged", "evidence", "statistic", "p_value"),
+                      names(mech))
+    print(mech[, cols, drop = FALSE], row.names = FALSE)
+    cat("\n")
+  } else {
+    cat("Mechanism Risk Assessment: not available.\n\n")
+  }
+
   # --- Overall interpretation ---
   cat("Interpretation:\n")
   pg_available <- !is.null(object@permutation_gap) && nrow(object@permutation_gap) > 0

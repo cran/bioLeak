@@ -130,6 +130,39 @@ nested_splits <- make_split_plan(
 cat("Nested CV splits summary:\n")
 nested_splits
 
+## ----combined-splits----------------------------------------------------------
+# For combined mode, constraint-axis levels should not span all folds.
+# Here each subject belongs to exactly one site, so site exclusion only
+# removes training samples from the same site as the test subjects.
+df_comb <- df
+df_comb$site <- paste0("site", rep(1:8, each = 5)[df_comb$subject])
+
+combined_splits <- make_split_plan(
+  df_comb,
+  outcome = "outcome",
+  mode = "combined",
+  constraints = list(
+    list(type = "subject", col = "subject"),
+    list(type = "batch",   col = "site")
+  ),
+  v = 4,
+  stratify = TRUE,
+  seed = 42
+)
+
+cat("Combined (N-axis) splits summary:\n")
+combined_splits
+
+## ----combined-overlap-check---------------------------------------------------
+# Verify zero overlap on all constraint axes
+overlap_result <- check_split_overlap(combined_splits)
+overlap_result
+
+## ----check-split-overlap------------------------------------------------------
+# Run on the subject-grouped splits from earlier
+overlap_safe <- check_split_overlap(safe_splits)
+overlap_safe
+
 ## ----compact-splits-----------------------------------------------------------
 # Efficient storage for large N
 big_splits <- make_split_plan(
@@ -144,6 +177,45 @@ big_splits <- make_split_plan(
 cat("Compact-mode splits summary:\n")
 big_splits
 cat(sprintf("Compact storage enabled: %s\n", big_splits@info$compact))
+
+## ----strict-mode-demo, error=TRUE---------------------------------------------
+try({
+# Enable strict mode temporarily
+withr::with_options(list(bioLeak.strict = TRUE), {
+  strict_splits <- make_split_plan(
+    df,
+    outcome = "outcome",
+    mode = "subject_grouped",
+    group = "subject",
+    v = 5,
+    stratify = TRUE,
+    seed = 42
+  )
+  cat("Strict mode splits completed without error.\n")
+})
+})
+
+## ----strict-mode-trained-recipe, error=TRUE-----------------------------------
+try({
+# Strict mode catches a pre-trained recipe
+if (requireNamespace("recipes", quietly = TRUE)) {
+  rec <- recipes::recipe(outcome ~ ., data = df[, c("outcome", predictors)]) |>
+    recipes::step_normalize(recipes::all_numeric_predictors()) |>
+    recipes::prep(training = df[, c("outcome", predictors)])
+
+  withr::with_options(list(bioLeak.strict = TRUE), {
+    tryCatch(
+      fit_resample(
+        df, outcome = "outcome",
+        splits = safe_splits,
+        learner = "glmnet",
+        preprocess = rec
+      ),
+      error = function(e) cat("Strict mode error:", conditionMessage(e), "\n")
+    )
+  })
+}
+})
 
 ## ----leaky-scaling------------------------------------------------------------
 df_leaky_scaled <- df
@@ -239,6 +311,23 @@ imp$train
 
 # Guarded-imputed test data
 imp$test
+
+## ----guard-to-recipe----------------------------------------------------------
+if (requireNamespace("recipes", quietly = TRUE)) {
+  guard_steps <- list(
+    impute    = list(method = "median"),
+    normalize = list(method = "zscore")
+  )
+
+  rec <- guard_to_recipe(
+    steps = guard_steps,
+    formula = outcome ~ .,
+    training_data = df[, c("outcome", predictors)]
+  )
+
+  cat("Converted recipe:\n")
+  rec
+}
 
 ## ----parsnip-spec-------------------------------------------------------------
 spec <- parsnip::logistic_reg(mode = "classification") |>
@@ -701,6 +790,14 @@ if (!is.null(audit@duplicates) && nrow(audit@duplicates) > 0) {
   head(audit@duplicates)
 } else {
   cat("No near-duplicates detected.\n")
+}
+
+## ----mechanism-summary--------------------------------------------------------
+mech <- audit@info$mechanism_summary
+if (is.data.frame(mech) && nrow(mech) > 0) {
+  mech
+} else {
+  cat("No mechanism summary available.\n")
 }
 
 ## ----plot-perm----------------------------------------------------------------

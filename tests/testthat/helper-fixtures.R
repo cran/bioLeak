@@ -79,7 +79,9 @@ fit_resample_quiet <- function(...) {
     "algorithm did not converge",
     "fitted probabilities numerically 0 or 1 occurred",
     "rank-deficient",
-    "non-estim"
+    "non-estim",
+    "one multinomial or binomial class has fewer than 8",
+    "option grouped=false enforced in cv.glmnet"
   )
   seen_warnings <- character()
   capture.output({

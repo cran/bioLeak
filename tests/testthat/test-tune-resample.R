@@ -9,6 +9,14 @@ skip_if_tune_deps <- function() {
   skip_if_not_installed("parsnip")
 }
 
+tune_resample_quiet <- function(...) {
+  out <- NULL
+  capture.output({
+    out <- suppressWarnings(tune_resample(...))
+  })
+  out
+}
+
 test_that("tune_resample selects a deterministic simple model with one_std_err", {
   skip_if_tune_deps()
 
@@ -64,16 +72,12 @@ test_that("tune_resample selects a deterministic simple model with one_std_err",
     .package = "bioLeak"
   )
 
-  tuned_best <- suppressWarnings(
-    tune_resample(df, outcome = "outcome", splits = splits,
-                  learner = spec, preprocess = rec, grid = 2,
-                  metrics = "accuracy", selection = "best", seed = 11)
-  )
-  tuned_ose <- suppressWarnings(
-    tune_resample(df, outcome = "outcome", splits = splits,
-                  learner = spec, preprocess = rec, grid = 2,
-                  metrics = "accuracy", selection = "one_std_err", seed = 11)
-  )
+  tuned_best <- tune_resample_quiet(df, outcome = "outcome", splits = splits,
+                                    learner = spec, preprocess = rec, grid = 2,
+                                    metrics = "accuracy", selection = "best", seed = 11)
+  tuned_ose <- tune_resample_quiet(df, outcome = "outcome", splits = splits,
+                                   learner = spec, preprocess = rec, grid = 2,
+                                   metrics = "accuracy", selection = "one_std_err", seed = 11)
 
   expect_true(nrow(tuned_best$best_params) > 0)
   expect_true(nrow(tuned_ose$best_params) > 0)
@@ -84,7 +88,7 @@ test_that("tune_resample selects a deterministic simple model with one_std_err",
 test_that("tune_resample supports final refit and stores fold status", {
   skip_if_tune_deps()
 
-  df <- make_class_df(40)
+  df <- make_class_df(80)
   splits <- make_split_plan_quiet(df, outcome = "outcome",
                                   mode = "subject_grouped", group = "subject",
                                   v = 2, nested = TRUE, stratify = FALSE, seed = 2)
@@ -93,12 +97,10 @@ test_that("tune_resample supports final refit and stores fold status", {
     parsnip::set_engine("glmnet")
   rec <- recipes::recipe(outcome ~ x1 + x2, data = df)
 
-  tuned <- suppressWarnings(
-    tune_resample(df, outcome = "outcome", splits = splits,
-                  learner = spec, preprocess = rec, grid = 2,
-                  metrics = "accuracy", selection = "best",
-                  refit = TRUE, seed = 2)
-  )
+  tuned <- tune_resample_quiet(df, outcome = "outcome", splits = splits,
+                               learner = spec, preprocess = rec, grid = 2,
+                               metrics = "accuracy", selection = "best",
+                               refit = TRUE, seed = 2)
 
   expect_true(isTRUE(tuned$info$refit))
   expect_true(!is.null(tuned$final_model))
@@ -109,21 +111,109 @@ test_that("tune_resample supports final refit and stores fold status", {
   expect_true(all(tuned$fold_status$status %in% c("success", "skipped", "failed")))
 })
 
+test_that("final refit uses aggregated params, not single best outer fold", {
+  skip_if_tune_deps()
+
+  df <- make_class_df(80)
+  splits <- make_split_plan_quiet(df, outcome = "outcome",
+                                  mode = "subject_grouped", group = "subject",
+                                  v = 2, nested = TRUE, stratify = FALSE, seed = 2)
+
+  spec <- parsnip::logistic_reg(penalty = tune::tune(), mixture = 1) |>
+    parsnip::set_engine("glmnet")
+  rec <- recipes::recipe(outcome ~ x1 + x2, data = df)
+
+  tuned <- tune_resample_quiet(df, outcome = "outcome", splits = splits,
+                               learner = spec, preprocess = rec, grid = 3,
+                               metrics = "accuracy", selection = "best",
+                               refit = TRUE, seed = 2)
+
+  # refit_method must be "aggregate", not a single-fold selection
+  expect_identical(tuned$info$refit_method, "aggregate")
+
+  # refit_fold must be NA — no single fold was selected based on outer metrics
+  expect_true(is.na(tuned$info$refit_fold))
+
+  # final_params must have exactly the hyperparameter columns, no fold column
+  expect_false("fold" %in% names(tuned$final_params))
+
+  # --- Behavioral proof that outer test metrics are not consulted ---
+  # final_params must exactly equal the coordinate-wise aggregate of ALL folds'
+  # best_params. This is the core independence guarantee: the old (leaky) code
+  # did which.max(metrics_df[[metric]]) to pick a single fold, so final_params
+  # would equal that fold's row. The new code aggregates all folds equally.
+  bp <- tuned$best_params
+  param_cols <- setdiff(names(bp), "fold")
+  expect_true(nrow(bp) >= 2,
+              info = "Need at least 2 outer folds to test aggregation")
+  expect_true(length(param_cols) >= 1,
+              info = "Need at least 1 hyperparameter column")
+
+  for (col in param_cols) {
+    if (is.numeric(bp[[col]])) {
+      expected <- stats::median(bp[[col]], na.rm = TRUE)
+      expect_equal(tuned$final_params[[col]], expected,
+                   info = paste("Param", col,
+                                "must equal median across ALL folds, not a single fold's value"))
+    } else {
+      tbl <- table(bp[[col]])
+      expected <- names(tbl)[which.max(tbl)]
+      expect_equal(as.character(tuned$final_params[[col]]), expected,
+                   info = paste("Param", col,
+                                "must equal majority vote across ALL folds"))
+    }
+  }
+
+  # Verify final_params is not simply copied from the best-metric fold.
+  # Identify the fold that had the best outer metric — if it differs from the
+  # aggregate, the old (leaky) logic would have returned that fold's params.
+  metric_col <- tuned$info$selection_metric
+  if (!is.null(metric_col) && metric_col %in% names(tuned$metrics)) {
+    metric_vals <- tuned$metrics[[metric_col]]
+    minimize <- metric_col %in% c("rmse", "mae", "log_loss", "mn_log_loss")
+    best_idx <- if (minimize) which.min(metric_vals) else which.max(metric_vals)
+    best_fold <- tuned$metrics$fold[best_idx]
+    best_fold_params <- bp[bp$fold == best_fold, param_cols, drop = FALSE]
+
+    # Check if folds actually disagree on params
+    folds_disagree <- FALSE
+    for (col in param_cols) {
+      if (length(unique(bp[[col]])) > 1L) {
+        folds_disagree <- TRUE
+        break
+      }
+    }
+
+    if (folds_disagree && nrow(best_fold_params) == 1L) {
+      # When folds disagree, the aggregate should NOT equal the best-metric
+      # fold's params. This is the direct proof: the old code would have
+      # returned best_fold_params, the new code returns the aggregate.
+      params_match_best <- all(vapply(param_cols, function(col) {
+        identical(tuned$final_params[[col]], best_fold_params[[col]])
+      }, logical(1)))
+      expect_false(params_match_best,
+                   info = paste("final_params must not equal fold", best_fold,
+                                "params (the best-metric fold) — that would be",
+                                "nested-CV leakage"))
+    }
+  }
+})
+
 test_that("LeakTune summary and audit handle skipped outer folds", {
   skip_if_tune_deps()
 
   set.seed(1)
   df <- data.frame(
-    subject = paste0("s", seq_len(20)),
-    outcome = factor(c(rep(0, 12), rep(1, 8)), levels = c(0, 1)),
-    x1 = rnorm(20),
-    x2 = rnorm(20),
+    subject = paste0("s", seq_len(60)),
+    outcome = factor(c(rep(0, 30), rep(1, 30)), levels = c(0, 1)),
+    x1 = rnorm(60),
+    x2 = rnorm(60),
     stringsAsFactors = FALSE
   )
 
   indices <- list(
-    list(train = 1:12, test = 13:20, fold = 1L, repeat_id = 1L),
-    list(train = c(1:10, 13:20), test = 11:12, fold = 2L, repeat_id = 1L)
+    list(train = 1:20, test = 21:60, fold = 1L, repeat_id = 1L),
+    list(train = c(1:20, 31:60), test = 21:30, fold = 2L, repeat_id = 1L)
   )
   split_info <- list(
     outcome = "outcome",
@@ -142,8 +232,8 @@ test_that("LeakTune summary and audit handle skipped outer folds", {
     summary = data.frame(
       fold = c(1L, 2L),
       repeat_id = c(1L, 1L),
-      train_n = c(12L, 18L),
-      test_n = c(8L, 2L)
+      train_n = c(20L, 50L),
+      test_n = c(40L, 10L)
     ),
     hash = "manual",
     inner = NULL,
@@ -157,11 +247,9 @@ test_that("LeakTune summary and audit handle skipped outer folds", {
     parsnip::set_engine("glmnet")
   rec <- recipes::recipe(outcome ~ x1 + x2, data = df)
 
-  tuned <- suppressWarnings(
-    tune_resample(df, outcome = "outcome", splits = splits,
-                  learner = spec, preprocess = rec, grid = 2,
-                  metrics = "accuracy", seed = 1)
-  )
+  tuned <- tune_resample_quiet(df, outcome = "outcome", splits = splits,
+                               learner = spec, preprocess = rec, grid = 2,
+                               metrics = "accuracy", seed = 1)
 
   expect_true(is.null(tuned$outer_fits[[1]]))
   expect_true(!is.null(tuned$outer_fits[[2]]))
@@ -259,12 +347,10 @@ test_that("tune_resample tunes binomial thresholds from inner predictions", {
     .package = "bioLeak"
   )
 
-  tuned <- suppressWarnings(
-    tune_resample(df, outcome = "outcome", splits = splits,
-                  learner = spec, preprocess = rec, grid = 2,
-                  metrics = "accuracy", selection = "best", seed = 21,
-                  tune_threshold = TRUE, threshold_grid = c(0.2, 0.8))
-  )
+  tuned <- tune_resample_quiet(df, outcome = "outcome", splits = splits,
+                               learner = spec, preprocess = rec, grid = 2,
+                               metrics = "accuracy", selection = "best", seed = 21,
+                               tune_threshold = TRUE, threshold_grid = c(0.2, 0.8))
 
   expect_true(all(seen_save_pred))
   expect_equal(length(seen_thresholds), length(splits@indices))

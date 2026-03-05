@@ -15,7 +15,7 @@ Out of scope:
 - Proving the absence of leakage or guaranteeing unbiased performance.
 - Production deployment tooling.
 - Unsupervised learning (not currently supported).
-- Calibration assessment and general data-quality diagnostics.
+- Broad, non-leakage-oriented data-quality diagnostics.
 
 ## Why bioLeak is needed
 Standard cross-validation assumes independent samples and exchangeable labels. Biomedical datasets often violate these assumptions due to repeated measures, site effects, batch structure, and temporal dependence. These violations can inflate performance metrics even when a model does not generalize. `bioLeak` enforces leakage-aware resampling and provides post-hoc diagnostics that estimate how much apparent performance could be driven by leakage or confounding.
@@ -28,6 +28,7 @@ Standard cross-validation assumes independent samples and exchangeable labels. B
 - Guarded vs leaky comparisons: run the same model with an intentionally leaky comparator (for example, global preprocessing or leaky features) to estimate performance inflation risk.
 - Leakage diagnostics (`audit_leakage`): permutation gap for signal vs permuted labels, batch/study association tests, target leakage scan on `X_ref`, and near-duplicate detection.
 - Diagnostics polish: calibration checks (`calibration_summary`, `plot_calibration`) and confounder sensitivity (`confounder_sensitivity`, `plot_confounder_sensitivity`).
+- Simulation benchmark matrix (`benchmark_leakage_suite`): reproducible modality-by-leakage scenario grids with detection-rate summaries.
 - Reporting (`audit_report`): HTML summary of audit results for sharing and review.
 
 ## Installation
