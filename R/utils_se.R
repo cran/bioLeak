@@ -2,6 +2,31 @@
 
 .bio_is_se <- function(x) inherits(x, "SummarizedExperiment")
 
+.bio_coldata_df <- function(x) {
+  cd <- if (.bio_is_se(x)) SummarizedExperiment::colData(x) else x
+  out <- as.list(cd)
+  out <- lapply(out, function(col) {
+    if (is.factor(col) || is.character(col) || is.numeric(col) ||
+        is.integer(col) || is.logical(col) ||
+        inherits(col, "Date") || inherits(col, "POSIXt")) {
+      return(col)
+    }
+    if (methods::is(col, "Rle") || methods::is(col, "Vector")) {
+      return(as.vector(col))
+    }
+    if (methods::is(col, "List")) {
+      return(as.list(col))
+    }
+    col
+  })
+  out <- as.data.frame(out, check.names = FALSE, stringsAsFactors = FALSE)
+  rn <- tryCatch(rownames(cd), error = function(e) NULL)
+  if (!is.null(rn) && length(rn) == nrow(out)) {
+    rownames(out) <- rn
+  }
+  out
+}
+
 .bio_get_x <- function(x, assay_name = NULL) {
   if (.bio_is_se(x)) {
     if (is.null(assay_name)) {

@@ -52,7 +52,7 @@ test_that("workflow leakage validator flags trained workflows", {
         parsnip::set_engine("glm")
     ) |>
     workflows::add_formula(outcome ~ x1 + x2)
-  wf_trained <- workflows::fit(wf, data = df)
+  wf_trained <- generics::fit(wf, data = df)
 
   expect_warning(
     bioLeak:::.bio_validate_workflow_graph(wf_trained, context = "test", mode = "warn"),

@@ -7,11 +7,13 @@ test_that("combined mode produces valid splits with no subject overlap AND no ba
     x1 = rnorm(60),
     x2 = rnorm(60)
   )
-  splits <- make_split_plan(df, outcome = "outcome",
-                            mode = "combined",
-                            primary_axis = list(type = "subject", col = "subject"),
-                            secondary_axis = list(type = "batch", col = "batch"),
-                            v = 3, progress = FALSE)
+  splits <- suppressWarnings(make_split_plan(
+    df, outcome = "outcome",
+    mode = "combined",
+    primary_axis = list(type = "subject", col = "subject"),
+    secondary_axis = list(type = "batch", col = "batch"),
+    v = 3, progress = FALSE
+  ))
   expect_s4_class(splits, "LeakSplits")
   expect_equal(splits@mode, "combined")
 
@@ -76,11 +78,13 @@ test_that("compact = TRUE produces fold_assignments", {
     x1 = rnorm(60),
     x2 = rnorm(60)
   )
-  splits <- make_split_plan(df, outcome = "outcome",
-                            mode = "combined",
-                            primary_axis = list(type = "subject", col = "subject"),
-                            secondary_axis = list(type = "batch", col = "batch"),
-                            v = 3, compact = TRUE, progress = FALSE)
+  splits <- suppressWarnings(make_split_plan(
+    df, outcome = "outcome",
+    mode = "combined",
+    primary_axis = list(type = "subject", col = "subject"),
+    secondary_axis = list(type = "batch", col = "batch"),
+    v = 3, compact = TRUE, progress = FALSE
+  ))
   expect_true(isTRUE(splits@info$compact))
   expect_true(length(splits@info$fold_assignments) > 0)
 })
@@ -94,11 +98,13 @@ test_that("combined splits pass through to fit_resample successfully", {
     x1 = rnorm(60),
     x2 = rnorm(60)
   )
-  splits <- make_split_plan(df, outcome = "outcome",
-                            mode = "combined",
-                            primary_axis = list(type = "subject", col = "subject"),
-                            secondary_axis = list(type = "batch", col = "batch"),
-                            v = 3, progress = FALSE)
+  splits <- suppressWarnings(make_split_plan(
+    df, outcome = "outcome",
+    mode = "combined",
+    primary_axis = list(type = "subject", col = "subject"),
+    secondary_axis = list(type = "batch", col = "batch"),
+    v = 3, progress = FALSE
+  ))
   fit <- fit_resample_quiet(df, outcome = "outcome", splits = splits,
                             learner = "glmnet",
                             preprocess = list(
@@ -118,11 +124,13 @@ test_that("stratification works with combined mode", {
     x1 = rnorm(60),
     x2 = rnorm(60)
   )
-  splits <- make_split_plan(df, outcome = "outcome",
-                            mode = "combined",
-                            primary_axis = list(type = "subject", col = "subject"),
-                            secondary_axis = list(type = "batch", col = "batch"),
-                            v = 3, stratify = TRUE, progress = FALSE)
+  splits <- suppressWarnings(make_split_plan(
+    df, outcome = "outcome",
+    mode = "combined",
+    primary_axis = list(type = "subject", col = "subject"),
+    secondary_axis = list(type = "batch", col = "batch"),
+    v = 3, stratify = TRUE, progress = FALSE
+  ))
   expect_s4_class(splits, "LeakSplits")
   expect_gt(length(splits@indices), 0)
 })

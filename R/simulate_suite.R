@@ -68,7 +68,7 @@
 #'   split more conservative and can reduce leakage from temporal proximity.
 #' @param B Integer scalar >= 1. Number of permutations used by
 #'   \code{audit_leakage()} to compute the permutation gap and p-value (default
-#'   1000). Larger values yield more stable p-values but increase runtime.
+#'   200). Larger values yield more stable p-values but increase runtime.
 #' @param seeds Integer vector. Monte Carlo seeds (default \code{1:10}). One row
 #'   of output is produced per seed; changing \code{seeds} changes the simulated
 #'   datasets and splits.
@@ -80,6 +80,28 @@
 #'   tend to increase AUC; smaller values make the task harder.
 #' @param verbose Logical scalar. If \code{TRUE}, prints progress messages for
 #'   each seed. Does not affect results.
+#'
+#' @note
+#' This function is a general-purpose utility and its data-generation logic
+#' intentionally differs from the custom simulation used in the bioLeak
+#' manuscript (\file{paper/run_simulation.R}). Specific differences:
+#' \itemize{
+#'   \item \strong{peek_norm leakage}: this function uses a z-scored binary
+#'     outcome as the leak feature; the manuscript uses a noisy continuous
+#'     version (\code{as.numeric(y) + rnorm(n, 0, 0.3)}).
+#'   \item \strong{lookahead leakage}: this function shifts the binary outcome
+#'     (\code{c(y[-1], y[n])}); the manuscript shifts a continuous biomarker
+#'     (\code{linpred + noise}).
+#'   \item \strong{signal generation}: this function applies AR correlation to
+#'     predictors via \code{rho}; the manuscript adds AR(1) noise directly to
+#'     the linear predictor.
+#'   \item \strong{audit settings}: the manuscript uses
+#'     \code{perm_refit = FALSE} and \code{perm_stratify = TRUE};
+#'     this function uses \code{perm_refit = "auto"} and the
+#'     \code{perm_stratify} default (\code{FALSE}).
+#' }
+#' Users wishing to reproduce manuscript figures should run
+#' \file{paper/run_simulation.R} directly rather than calling this function.
 #'
 #' @return
 #' A \code{LeakSimResults} data frame with one row per seed and columns:

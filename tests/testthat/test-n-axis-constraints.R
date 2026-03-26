@@ -8,19 +8,23 @@ test_that("constraints with 2 axes produces identical results to primary_axis/se
     x2 = rnorm(60)
   )
 
-  splits_legacy <- make_split_plan(df, outcome = "outcome",
-                                   mode = "combined",
-                                   primary_axis = list(type = "subject", col = "subject"),
-                                   secondary_axis = list(type = "batch", col = "batch"),
-                                   v = 3, seed = 1, progress = FALSE)
+  splits_legacy <- suppressWarnings(make_split_plan(
+    df, outcome = "outcome",
+    mode = "combined",
+    primary_axis = list(type = "subject", col = "subject"),
+    secondary_axis = list(type = "batch", col = "batch"),
+    v = 3, seed = 1, progress = FALSE
+  ))
 
-  splits_new <- make_split_plan(df, outcome = "outcome",
-                                mode = "combined",
-                                constraints = list(
-                                  list(type = "subject", col = "subject"),
-                                  list(type = "batch", col = "batch")
-                                ),
-                                v = 3, seed = 1, progress = FALSE)
+  splits_new <- suppressWarnings(make_split_plan(
+    df, outcome = "outcome",
+    mode = "combined",
+    constraints = list(
+      list(type = "subject", col = "subject"),
+      list(type = "batch", col = "batch")
+    ),
+    v = 3, seed = 1, progress = FALSE
+  ))
 
   expect_equal(length(splits_legacy@indices), length(splits_new@indices))
   for (i in seq_along(splits_legacy@indices)) {
@@ -46,14 +50,16 @@ test_that("3-axis constraint (subject + batch + site) enforces all three", {
     x1 = rnorm(n_groups * subjects_per_group),
     stringsAsFactors = FALSE
   )
-  splits <- make_split_plan(df, outcome = "outcome",
-                            mode = "combined",
-                            constraints = list(
-                              list(type = "subject", col = "subject"),
-                              list(type = "batch", col = "batch"),
-                              list(type = "study", col = "site")
-                            ),
-                            v = 3, progress = FALSE)
+  splits <- suppressWarnings(make_split_plan(
+    df, outcome = "outcome",
+    mode = "combined",
+    constraints = list(
+      list(type = "subject", col = "subject"),
+      list(type = "batch", col = "batch"),
+      list(type = "study", col = "site")
+    ),
+    v = 3, progress = FALSE
+  ))
   expect_s4_class(splits, "LeakSplits")
 
   for (fold in splits@indices) {
@@ -84,14 +90,16 @@ test_that("check_split_overlap validates all N axes", {
     x1 = rnorm(n_groups * subjects_per_group),
     stringsAsFactors = FALSE
   )
-  splits <- make_split_plan(df, outcome = "outcome",
-                            mode = "combined",
-                            constraints = list(
-                              list(type = "subject", col = "subject"),
-                              list(type = "batch", col = "batch"),
-                              list(type = "study", col = "site")
-                            ),
-                            v = 3, progress = FALSE)
+  splits <- suppressWarnings(make_split_plan(
+    df, outcome = "outcome",
+    mode = "combined",
+    constraints = list(
+      list(type = "subject", col = "subject"),
+      list(type = "batch", col = "batch"),
+      list(type = "study", col = "site")
+    ),
+    v = 3, progress = FALSE
+  ))
   result <- check_split_overlap(splits)
   expect_true(all(result$pass))
   expect_true(all(c("subject", "batch", "site") %in% result$col))
@@ -105,11 +113,13 @@ test_that("legacy primary_axis/secondary_axis still works", {
     outcome = rbinom(60, 1, 0.5),
     x1 = rnorm(60)
   )
-  splits <- make_split_plan(df, outcome = "outcome",
-                            mode = "combined",
-                            primary_axis = list(type = "subject", col = "subject"),
-                            secondary_axis = list(type = "batch", col = "batch"),
-                            v = 3, progress = FALSE)
+  splits <- suppressWarnings(make_split_plan(
+    df, outcome = "outcome",
+    mode = "combined",
+    primary_axis = list(type = "subject", col = "subject"),
+    secondary_axis = list(type = "batch", col = "batch"),
+    v = 3, progress = FALSE
+  ))
   expect_s4_class(splits, "LeakSplits")
   # constraints should be populated in info
   expect_equal(length(splits@info$constraints), 2)
@@ -171,14 +181,16 @@ test_that("constraints info slot stores all axes", {
     x1 = rnorm(n_groups * subjects_per_group),
     stringsAsFactors = FALSE
   )
-  splits <- make_split_plan(df, outcome = "outcome",
-                            mode = "combined",
-                            constraints = list(
-                              list(type = "subject", col = "subject"),
-                              list(type = "batch", col = "batch"),
-                              list(type = "study", col = "site")
-                            ),
-                            v = 3, progress = FALSE)
+  splits <- suppressWarnings(make_split_plan(
+    df, outcome = "outcome",
+    mode = "combined",
+    constraints = list(
+      list(type = "subject", col = "subject"),
+      list(type = "batch", col = "batch"),
+      list(type = "study", col = "site")
+    ),
+    v = 3, progress = FALSE
+  ))
   expect_equal(length(splits@info$constraints), 3)
   # backward compat: primary_axis and secondary_axis still populated
   expect_equal(splits@info$primary_axis$col, "subject")

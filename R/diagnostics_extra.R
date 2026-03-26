@@ -116,6 +116,11 @@ calibration_summary <- function(fit, bins = 10, min_bin_n = 5, learner = NULL) {
   if (!is.factor(truth)) truth <- factor(truth)
   pos_class <- fit@info$positive_class
   if (is.null(pos_class) || !as.character(pos_class) %in% levels(truth)) {
+    if (nlevels(truth) < 2L) {
+      warning("calibration_summary requires at least two outcome levels.", call. = FALSE)
+      return(data.frame(bin = integer(0), mean_pred = numeric(0),
+                        obs_rate = numeric(0), n = integer(0)))
+    }
     pos_class <- levels(truth)[2]
   }
   y <- as.integer(truth == pos_class)
@@ -188,6 +193,9 @@ calibration_summary <- function(fit, bins = 10, min_bin_n = 5, learner = NULL) {
 #'   with many unique values.
 #' @param learner Optional character scalar. When predictions include multiple
 #'   learners, selects the learner to summarize.
+#' @param strict_align Logical scalar. If TRUE, errors when coldata cannot be
+#'   aligned by row names or IDs and would fall back to row-order matching.
+#'   Default is FALSE.
 #' @return A data.frame with per-confounder, per-level metrics and counts.
 #' @examples
 #' set.seed(42)
@@ -221,7 +229,7 @@ calibration_summary <- function(fit, bins = 10, min_bin_n = 5, learner = NULL) {
 #' @export
 confounder_sensitivity <- function(fit, confounders = NULL, metric = NULL,
                                    min_n = 10, coldata = NULL, numeric_bins = 4,
-                                   learner = NULL) {
+                                   learner = NULL, strict_align = FALSE) {
   stopifnot(inherits(fit, "LeakFit"))
   pred_df <- .select_predictions_for_diagnostics(fit, "confounder sensitivity", learner = learner)
   if (!"id" %in% names(pred_df)) {
@@ -255,6 +263,10 @@ confounder_sensitivity <- function(fit, confounders = NULL, metric = NULL,
       return(cd[ids_int, , drop = FALSE])
     }
     if (nrow(cd) == length(ids)) {
+      if (isTRUE(strict_align)) {
+        stop("coldata rownames do not match prediction ids and strict_align = TRUE; ",
+             "provide matching row names or a 'row_id' column.", call. = FALSE)
+      }
       warning("coldata rownames do not match prediction ids; assuming row order aligns to predictions.",
               call. = FALSE)
       return(cd)
@@ -313,6 +325,11 @@ confounder_sensitivity <- function(fit, confounders = NULL, metric = NULL,
   if (identical(fit@task, "binomial")) {
     if (!is.factor(pred_df$truth)) pred_df$truth <- factor(pred_df$truth)
     if (is.null(pos_class) || !as.character(pos_class) %in% levels(pred_df$truth)) {
+      if (nlevels(pred_df$truth) < 2L) {
+        warning("confounder_sensitivity requires at least two outcome levels.",
+                call. = FALSE)
+        return(data.frame())
+      }
       pos_class <- levels(pred_df$truth)[2]
     }
   }

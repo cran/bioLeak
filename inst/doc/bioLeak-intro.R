@@ -567,7 +567,7 @@ if (requireNamespace("workflows", quietly = TRUE)) {
   fit_wf <- fit_resample(
     df,
     outcome = "outcome",
-    splits = safe_splits,
+    splits = splits,
     learner = wf,
     metrics = "auc",
     refit = FALSE
@@ -676,7 +676,7 @@ if (requireNamespace("parsnip", quietly = TRUE) &&
   fit_xgb <- fit_resample(
     df,
     outcome = "outcome",
-    splits = nested_splits,
+    splits = splits,
     learner = xgb_spec,
     metrics = "auc",
     preprocess = rec_xgb 
@@ -752,7 +752,9 @@ if (requireNamespace("ggplot2", quietly = TRUE)) {
 }
 
 ## ----audit-leakage------------------------------------------------------------
-X_ref <- df[, predictors]
+# Use df_leaky (the original 160-row data) so X_ref aligns with fit_safe's predictions.
+# df may have been redefined to a smaller dataset in the tidymodels section above.
+X_ref <- df_leaky[, predictors]
 X_ref[c(1, 5), ] <- X_ref[1, ]
 
 audit <- audit_leakage(
@@ -827,7 +829,7 @@ if (requireNamespace("ranger", quietly = TRUE) &&
     fit_multi <- fit_resample(
         df,
         outcome = "outcome",
-        splits = nested_splits,
+        splits = splits,
         learner = list(glm = spec_glm, rf = spec_rf),
         metrics = "auc"
     )
@@ -907,6 +909,189 @@ if (requireNamespace("ggplot2", quietly = TRUE)) {
   plot_time_acf(fit_time_safe, lag.max = 20)
 } else {
   cat("ggplot2 not installed; skipping ACF plot.\n")
+}
+
+## ----cv-ci--------------------------------------------------------------------
+# Standard 95% CI from the leakage-safe fit
+ci_std <- cv_ci(fit_safe@metrics, level = 0.95, method = "normal")
+cat("Standard 95% CI:\n")
+print(ci_std)
+
+# Nadeau-Bengio corrected CI
+# For K-fold CV: n_train ≈ (K-1)/K × n, n_test ≈ n/K
+K_folds  <- length(unique(fit_safe@metrics$fold))
+n_total  <- nrow(fit_safe@splits@info$coldata)
+
+ci_nb <- cv_ci(
+  fit_safe@metrics,
+  level   = 0.95,
+  method  = "nadeau_bengio",
+  n_train = round(n_total * (K_folds - 1L) / K_folds),
+  n_test  = round(n_total / K_folds)
+)
+cat("Nadeau-Bengio corrected 95% CI:\n")
+print(ci_nb)
+
+## ----delta-lsi-data-----------------------------------------------------------
+set.seed(100)
+n_d    <- 120L
+subj_d <- rep(paste0("P", seq_len(30L)), each = 4L)   # 30 subjects, 4 obs each
+
+df_dlsi_guarded <- data.frame(
+  subject = subj_d,
+  outcome = factor(sample(c("case", "control"), n_d, replace = TRUE)),
+  x1      = rnorm(n_d),
+  x2      = rnorm(n_d)
+)
+
+# Leaky feature: subject-level mean of outcome
+# With subject-grouped splits, test subjects' leak value encodes their outcome
+df_dlsi_naive <- df_dlsi_guarded
+df_dlsi_naive$leak <- ave(
+  as.numeric(df_dlsi_guarded$outcome == "case"),
+  subj_d, FUN = mean
+)
+
+# Shared splits: 5-fold × 5 repeats → R_eff = 5 (tier C: point + p-value)
+splits_dlsi <- make_split_plan(
+  df_dlsi_guarded,
+  outcome = "outcome",
+  mode    = "subject_grouped",
+  group   = "subject",
+  v       = 5L,
+  repeats = 5L
+)
+
+## ----delta-lsi-fits-----------------------------------------------------------
+# Reuse the parsnip spec (base R glm) defined earlier
+# Naive fit: uses leaky feature (leak encodes test-subject outcome label)
+fit_dlsi_naive <- fit_resample(
+  df_dlsi_naive,
+  outcome = "outcome",
+  splits  = splits_dlsi,
+  learner = spec,
+  metrics = "auc",
+  seed    = 1L
+)
+
+# Guarded fit: same splits, clean features only
+fit_dlsi_guarded <- fit_resample(
+  df_dlsi_guarded,
+  outcome = "outcome",
+  splits  = splits_dlsi,
+  learner = spec,
+  metrics = "auc",
+  seed    = 1L
+)
+
+cat("Naive   AUC:", round(mean(fit_dlsi_naive@metrics$auc,   na.rm = TRUE), 3), "\n")
+cat("Guarded AUC:", round(mean(fit_dlsi_guarded@metrics$auc, na.rm = TRUE), 3), "\n")
+
+## ----delta-lsi-run------------------------------------------------------------
+result_dlsi <- delta_lsi(
+  fit_leaky   = fit_dlsi_naive,
+  fit_guarded = fit_dlsi_guarded,
+  metric      = "auc",
+  M_boot      = 300L,
+  M_flip      = 300L,
+  seed        = 1L
+)
+
+summary(result_dlsi)
+
+## ----delta-lsi-tier-----------------------------------------------------------
+cat("Tier:          ", result_dlsi@tier, "\n")
+cat("R_eff:         ", result_dlsi@R_eff, "\n")
+cat("inference_ok:  ", result_dlsi@inference_ok, "\n")
+
+## ----delta-lsi-components-----------------------------------------------------
+# delta_metric: arithmetic mean of {Δ_r}
+cat("delta_metric:  ", round(result_dlsi@delta_metric, 4), "\n")
+# delta_lsi: Huber M-estimate of {Δ_r} (k=1.345, fixed MAD scale)
+cat("delta_lsi:     ", round(result_dlsi@delta_lsi,    4), "\n")
+# delta_lsi_ci: 95% BCa interval for delta_lsi (NA below tier B)
+cat("95% BCa CI:    [",
+    paste(round(result_dlsi@delta_lsi_ci, 4), collapse = ", "), "]\n")
+# p_value: sign-flip randomization p-value (NA below tier C or if unpaired)
+cat("p-value:       ",
+    if (is.na(result_dlsi@p_value)) "NA (tier D or unpaired)"
+    else format(result_dlsi@p_value, digits = 3), "\n")
+
+## ----delta-lsi-unpaired, warning=TRUE-----------------------------------------
+# Unpaired: naive uses sample-wise CV, guarded uses subject-grouped splits
+splits_rand <- make_split_plan(
+  df_dlsi_naive,
+  outcome = "outcome",
+  mode    = "subject_grouped",
+  group   = "row_id",
+  v       = 5L,
+  repeats = 5L
+)
+
+fit_naive_rand <- fit_resample(
+  df_dlsi_naive,
+  outcome = "outcome",
+  splits  = splits_rand,
+  learner = spec,
+  metrics = "auc",
+  seed    = 1L
+)
+
+r_unpaired <- suppressWarnings(
+  delta_lsi(fit_naive_rand, fit_dlsi_guarded, metric = "auc", seed = 1L)
+)
+
+cat(sprintf("Paired:        %s\n", r_unpaired@info$paired))
+cat(sprintf("R_eff:         %d  (0 = unpaired, inference disabled)\n", r_unpaired@R_eff))
+cat(sprintf("delta_metric:  %.4f  (naive raw mean - guarded raw mean)\n",
+            r_unpaired@delta_metric))
+cat(sprintf("p_value:       %s\n",
+            if (is.na(r_unpaired@p_value)) "NA" else r_unpaired@p_value))
+
+## ----delta-lsi-direction------------------------------------------------------
+r_hib_true  <- suppressWarnings(delta_lsi(
+  fit_dlsi_naive, fit_dlsi_guarded,
+  metric           = "auc",
+  higher_is_better = TRUE,
+  seed             = 1L
+))
+r_hib_false <- suppressWarnings(delta_lsi(
+  fit_dlsi_naive, fit_dlsi_guarded,
+  metric           = "auc",
+  higher_is_better = FALSE,
+  seed             = 1L
+))
+
+cat(sprintf("hib = TRUE:   delta_metric = %+.4f  (positive = naive inflated)\n",
+            r_hib_true@delta_metric))
+cat(sprintf("hib = FALSE:  delta_metric = %+.4f  (sign flipped)\n",
+            r_hib_false@delta_metric))
+
+## ----delta-lsi-hib-slot-------------------------------------------------------
+cat("higher_is_better used:", result_dlsi@info$higher_is_better, "\n")
+
+## ----delta-lsi-slots----------------------------------------------------------
+# Per-repeat summaries for custom plotting
+head(result_dlsi@repeats_naive,   3)
+head(result_dlsi@repeats_guarded, 3)
+
+# Per-fold diagnostics
+head(result_dlsi@folds_naive,   3)
+head(result_dlsi@folds_guarded, 3)
+
+# Metadata
+str(result_dlsi@info)
+
+## ----delta-lsi-audit-connect--------------------------------------------------
+# Step 1: detect and characterise leakage
+audit_naive_dlsi <- audit_leakage(fit_dlsi_naive, metric = "auc", B = 20L)
+cat("Naive audit summary:\n")
+summary(audit_naive_dlsi)
+
+# Step 2: confirmed guards reduced inflation; check residual DLSI
+cat("\ndelta_metric (naive vs guarded):", round(result_dlsi@delta_metric, 4), "\n")
+if (!is.na(result_dlsi@p_value)) {
+  cat("Sign-flip p-value:              ", format(result_dlsi@p_value, digits = 3), "\n")
 }
 
 ## ----parallel-setup, eval=FALSE-----------------------------------------------

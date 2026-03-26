@@ -2,36 +2,83 @@
 
 # bioLeak: Leakage-Safe Modeling and Auditing for Genomic and Clinical Data
 
-`bioLeak` is an R package for detecting, quantifying, and diagnosing data leakage in biomedical machine-learning workflows. It focuses on leakage introduced by preprocessing, dependent samples, and resampling violations in cross-validation and related evaluation settings.
+<!-- badges: start -->
+[![CRAN status](https://www.r-pkg.org/badges/version/bioLeak)](https://CRAN.R-project.org/package=bioLeak)
+[![R-CMD-check](https://github.com/selcukorkmaz/bioLeak/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/selcukorkmaz/bioLeak/actions/workflows/R-CMD-check.yaml)
+[![CRAN downloads](https://cranlogs.r-pkg.org/badges/grand-total/bioLeak)](https://CRAN.R-project.org/package=bioLeak)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Lifecycle: stable](https://img.shields.io/badge/lifecycle-stable-brightgreen.svg)](https://lifecycle.r-lib.org/articles/stages.html#stable)
+<!-- badges: end -->
+
+`bioLeak` is an R package for detecting, quantifying, and diagnosing data leakage in biomedical machine-learning workflows. It provides leakage-resistant resampling, guarded preprocessing, post-hoc auditing, and inference tools for cross-validation and related evaluation settings.
 
 ## Purpose and scope
-In scope:
-- Preprocessing leakage: global imputation, scaling, filtering, or feature selection applied before resampling.
-- Dependence leakage: repeated measures, subject-level grouping, batch/site/study effects, and near-duplicate samples.
-- Resampling violations: group overlap, study holdout, and time-ordered evaluation.
-- Diagnostic evidence: permutation-based performance gaps, batch/fold association tests, target leakage scans, and duplicate detection.
 
-Out of scope:
+**In scope:**
+- **Preprocessing leakage:** global imputation, scaling, filtering, or feature selection applied before resampling.
+- **Dependence leakage:** repeated measures, subject-level grouping, batch/site/study effects, and near-duplicate samples.
+- **Resampling violations:** group overlap, study holdout, time-ordered evaluation, and multi-axis split constraints.
+- **Diagnostic evidence:** permutation-based performance gaps, batch/fold association tests, target leakage scans, duplicate detection, and mechanism-level risk summaries.
+
+**Out of scope:**
 - Proving the absence of leakage or guaranteeing unbiased performance.
 - Production deployment tooling.
-- Unsupervised learning (not currently supported).
+- Unsupervised learning.
 - Broad, non-leakage-oriented data-quality diagnostics.
 
 ## Why bioLeak is needed
+
 Standard cross-validation assumes independent samples and exchangeable labels. Biomedical datasets often violate these assumptions due to repeated measures, site effects, batch structure, and temporal dependence. These violations can inflate performance metrics even when a model does not generalize. `bioLeak` enforces leakage-aware resampling and provides post-hoc diagnostics that estimate how much apparent performance could be driven by leakage or confounding.
 
 ## Core functionality
-- Leakage-aware splitting (`make_split_plan`): subject-grouped, batch-blocked, study leave-out, and time-series splits with reproducible metadata.
-- Guarded preprocessing and fitting (`fit_resample`): train-only imputation, normalization, filtering, and feature selection; excludes split-defining columns from predictors; supports parsnip specs and built-in learners; returns per-fold metrics and predictions for instability checks.
-- Multiclass and survival modeling support in `fit_resample` with task-appropriate metrics (accuracy/macro-F1/log-loss; C-index).
-- Leak-safe hyperparameter tuning (`tune_resample`): nested CV with tidymodels tune/dials using leakage-aware splits.
-- Guarded vs leaky comparisons: run the same model with an intentionally leaky comparator (for example, global preprocessing or leaky features) to estimate performance inflation risk.
-- Leakage diagnostics (`audit_leakage`): permutation gap for signal vs permuted labels, batch/study association tests, target leakage scan on `X_ref`, and near-duplicate detection.
-- Diagnostics polish: calibration checks (`calibration_summary`, `plot_calibration`) and confounder sensitivity (`confounder_sensitivity`, `plot_confounder_sensitivity`).
-- Simulation benchmark matrix (`benchmark_leakage_suite`): reproducible modality-by-leakage scenario grids with detection-rate summaries.
-- Reporting (`audit_report`): HTML summary of audit results for sharing and review.
+
+### Splitting and validation
+
+| Function | Description |
+|---|---|
+| `make_split_plan()` | Leakage-aware splits: subject-grouped, batch-blocked, study leave-out, time-series, and N-axis combined modes with compact storage option and constraint-aware train/test exclusion |
+| `check_split_overlap()` | Explicit overlap-invariant validation across declared grouping axes |
+| `as_rsample()` | Convert `LeakSplits` to an `rsample` rset for tidymodels interoperability |
+
+### Guarded preprocessing and modeling
+
+| Function | Description |
+|---|---|
+| `fit_resample()` | Cross-validated fitting with train-only imputation, normalization, filtering, and feature selection; supports binomial, multiclass, regression, and survival tasks; parallel execution via `future.apply` |
+| `tune_resample()` | Nested hyperparameter tuning via tidymodels `tune`/`dials` with leakage-aware outer splits, hyperparameter aggregation across folds, and optional threshold tuning; survival tasks are not yet supported |
+| `impute_guarded()` | Standalone train-only imputation (median, knn, missForest, none) |
+| `guard_to_recipe()` | Convert guarded preprocessing specifications to `recipes` pipelines |
+
+### Auditing and diagnostics
+
+| Function | Description |
+|---|---|
+| `audit_leakage()` | Permutation gap test, batch/study association tests, univariate and multivariate target leakage scans, near-duplicate detection, and mechanism-level risk summaries |
+| `audit_leakage_by_learner()` | Multi-learner auditing for multi-model fits |
+| `audit_report()` | Self-contained HTML summary of audit results |
+| `calibration_summary()` | Probability calibration checks |
+| `confounder_sensitivity()` | Sensitivity analysis for confounding effects |
+
+### Inference
+
+| Function | Description |
+|---|---|
+| `delta_lsi()` | Leakage sensitivity index (ΔLSI) with Huber M-estimation, BCa confidence intervals, sign-flip inference, and blocked exchangeability for time-series designs |
+| `cv_ci()` | Cross-validation confidence intervals with Nadeau-Bengio correction |
+
+### Simulation and benchmarking
+
+| Function | Description |
+|---|---|
+| `simulate_leakage_suite()` | Generate controlled leakage scenarios for benchmarking audit sensitivity |
+| `benchmark_leakage_suite()` | Reproducible modality-by-mechanism benchmark grids with detection-rate summaries |
+
+### Visualization
+
+`plot_calibration()`, `plot_confounder_sensitivity()`, `plot_fold_balance()`, `plot_overlap_checks()`, `plot_perm_distribution()`, `plot_time_acf()`
 
 ## Installation
+
 Requires R >= 4.3.
 
 From CRAN:
@@ -52,6 +99,7 @@ Non-obvious dependencies:
 - Optional packages enable specific features: `glmnet`, `ranger`, `pROC`, `PRROC`, `survival`, `future.apply`, `RANN`, `rmarkdown`, `tune`, `dials`.
 
 ## Minimal working example
+
 ```r
 library(bioLeak)
 
@@ -154,12 +202,14 @@ Interpretation notes:
 - Similar guarded and leaky results do not prove the absence of leakage; they only reduce specific risks tested by the audit.
 
 ## Tidymodels interoperability
-`bioLeak` supports several tidymodels abstractions for resampling, preprocessing, and metrics:
-- `fit_resample()` accepts `rsample` rset/rsplit objects as `splits`.
-- `as_rsample()` converts `LeakSplits` to an `rsample` rset.
-- `preprocess` can be a `recipes::recipe` (prepped on training folds, baked on test folds).
-- `learner` can be a `workflows::workflow`.
-- `metrics` accepts `yardstick::metric_set` objects.
+
+`bioLeak` integrates with the tidymodels ecosystem at multiple levels:
+
+- **Splits:** `fit_resample()` and `tune_resample()` accept `rsample` rset/rsplit objects as `splits`. `as_rsample()` converts `LeakSplits` to an `rsample` rset.
+- **Preprocessing:** `preprocess` can be a `recipes::recipe` (prepped on training folds, baked on test folds). `guard_to_recipe()` converts guarded preprocessing specifications into a `recipes` pipeline.
+- **Learners:** `learner` accepts `parsnip::model_spec` or `workflows::workflow` objects.
+- **Metrics:** `metrics` accepts `yardstick::metric_set` objects.
+
 Note: When using recipes/workflows, the built-in guarded preprocessing list is not applied; ensure your recipe is leakage-safe.
 
 Example (rsample + recipes + yardstick):
@@ -184,34 +234,51 @@ if (requireNamespace("rsample", quietly = TRUE) &&
 }
 ```
 
+## Supported tasks and learners
+
+`bioLeak` supports four task types:
+- **Binomial classification**: built-in character metrics are `auc`, `pr_auc`, and `accuracy`; additional metrics can be supplied via `yardstick::metric_set` when supported by the learner outputs.
+- **Multiclass classification**: built-in character metrics are `accuracy`, `macro_f1`, and `log_loss`.
+- **Regression**: built-in character metrics are `rmse` and `cindex`.
+- **Survival analysis**: built-in character metric is `cindex` in `fit_resample()`.
+
+The `learner` argument accepts parsnip model specs, workflows, or built-in learner strings (`"glmnet"`, `"ranger"`). Models such as base R `glm` or `xgboost` can still be used through parsnip/workflows or custom learners, but they are not built-in character learner names.
+
+Survival outcomes are supported in `fit_resample()`, but support is less complete across the package. In particular, `tune_resample()` does not yet support survival tasks.
+
 ## Methodological assumptions
+
 - The split mode matches the true dependence structure (subject, batch, study, or time).
 - Leakage is inferred from performance gaps and diagnostic signals, not proven or ruled out.
 - Permutation gaps assume the chosen resampling scheme reflects the intended evaluation setting.
-- By default, permutation gaps use refit-based permutations when refit data are available
-  (auto mode), falling back to fixed-prediction shuffles when they are not.
-- Target leakage scans include univariate associations plus a multivariate/interaction check
-  by default for supported tasks; proxies outside `X_ref` can still pass undetected.
+- By default, permutation gaps use refit-based permutations when refit data are available (auto mode), falling back to fixed-prediction shuffles when they are not.
+- Target leakage scans include univariate associations plus a multivariate/interaction check by default for supported tasks; proxies outside `X_ref` can still pass undetected.
 
 ## Interpretation guidance
-- Permutation gap: large positive gaps indicate non-random signal; they do not by themselves indicate or refute leakage.
-- Batch/study association warnings indicate that folds align with metadata; this can reflect leakage or study design constraints.
-- Target leakage flags identify features overly aligned with the outcome; inspect data provenance before removing them.
-- Duplicate detection flags near-identical samples across train/test by default; use `duplicate_scope = "all"` to include within-fold duplicates and review for data-quality issues.
+
+- **Permutation gap:** large positive gaps indicate non-random signal; they do not by themselves indicate or refute leakage.
+- **Batch/study association warnings** indicate that folds align with metadata; this can reflect leakage or study design constraints.
+- **Target leakage flags** identify features overly aligned with the outcome; inspect data provenance before removing them. When enabled, FDR-adjusted columns (`p_value_adj`, `flag_fdr`) provide a more conservative screen.
+- **Duplicate detection** flags near-identical samples across train/test by default; use `duplicate_scope = "all"` to include within-fold duplicates and review for data-quality issues.
+- **Mechanism risk summary** (`audit@info$mechanism_summary`) provides a compact mechanism-level risk view across permutation, confounding, target-proxy, duplicate, and temporal signals.
 
 Common misinterpretations:
 - "Non-significant permutation test means no leakage": false.
 - "High AUC implies good generalization": false if resampling is violated.
 - "No flagged features means no leakage": false; audits are limited to available metadata and `X_ref`.
 
-## Project status and intended audience
-Status: experimental (version 0.2.0). APIs and defaults may change.
-Intended audience: biomedical ML researchers, biostatisticians, and methodologists reviewing cross-validation and leakage risk.
+## Intended audience
 
-## Citation and reproducibility
-- Use `citation("bioLeak")` after installation or cite the GitHub repository with version and commit hash.
-- Report split mode, grouping columns, random seeds, preprocessing steps, learner specification, metrics, and audit settings (B, target threshold, similarity method).
-- Include both guarded and leaky comparator results when used.
+Biomedical ML researchers, biostatisticians, and methodologists reviewing cross-validation and leakage risk.
+
+## Citation
+
+```r
+citation("bioLeak")
+```
+
+When reporting results, include: split mode, grouping columns, random seeds, preprocessing steps, learner specification, metrics, and audit settings (B, target threshold, similarity method). Include both guarded and leaky comparator results when used.
 
 ## License
+
 MIT

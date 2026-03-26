@@ -21,7 +21,7 @@ the function uses \code{splits@info$coldata} if available.}
 any overlap is detected.}
 }
 \value{
-A data.frame with one row per (fold × column) combination and
+A data.frame with one row per fold-by-column combination and
   columns \code{fold}, \code{repeat_id}, \code{col}, \code{n_overlap}
   (number of overlapping group values), and \code{pass} (logical).
   Invisible. Raises an error if any fold fails and \code{stop_on_fail = TRUE}.

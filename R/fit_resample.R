@@ -312,7 +312,7 @@ fit_resample <- function(x, outcome, splits,
   if (!inherits(splits, "LeakSplits")) {
     if (.bio_is_rsample(splits)) {
       coldata <- if (.bio_is_se(x)) {
-        as.data.frame(SummarizedExperiment::colData(x))
+        .bio_coldata_df(x)
       } else if (is.data.frame(x)) {
         x
       } else if (is.matrix(x)) {
@@ -1023,6 +1023,10 @@ fit_resample <- function(x, outcome, splits,
     }
     r <- fold$repeat_id
     if (is.null(r) || !is.finite(r)) r <- 1L
+    r <- as.integer(r)
+    if (r < 1L || r > length(fold_assignments)) {
+      stop(sprintf("repeat_id %d out of range [1, %d].", r, length(fold_assignments)))
+    }
     assign_vec <- fold_assignments[[r]]
     if (is.null(assign_vec)) {
       stop(sprintf("Missing fold assignments for repeat %s.", r))
@@ -1040,6 +1044,18 @@ fit_resample <- function(x, outcome, splits,
         purge = split_purge,
         embargo = split_embargo
       )
+    } else if (identical(split_mode, "combined")) {
+      # Combined mode: exclude samples sharing constraint-axis levels with test
+      remaining <- setdiff(seq_len(nrow(Xall)), test)
+      cst <- splits@info$constraints
+      if (!is.null(cst) && length(cst) > 1L && !is.null(split_coldata)) {
+        for (ax in cst[-1]) {
+          ax_vec <- split_coldata[[ax$col]]
+          test_levels <- unique(ax_vec[test])
+          remaining <- remaining[!ax_vec[remaining] %in% test_levels]
+        }
+      }
+      train <- remaining
     } else {
       train <- setdiff(seq_len(nrow(Xall)), test)
     }
@@ -1153,7 +1169,11 @@ fit_resample <- function(x, outcome, splits,
         Xteg <- Xteg[, intersect(keep_cols, names(Xteg)), drop = FALSE]
         missing_in_test <- setdiff(names(Xtrg), names(Xteg))
         if (length(missing_in_test)) {
-          for (nm in missing_in_test) Xteg[[nm]] <- 0
+          for (nm in missing_in_test) {
+            Xteg[[nm]] <- if (is.numeric(Xtrg[[nm]])) mean(Xtrg[[nm]], na.rm = TRUE) else 0
+          }
+          warning("Test fold missing columns filled from training statistics: ",
+                  paste(missing_in_test, collapse = ", "), call. = FALSE)
         }
         Xteg <- Xteg[, names(Xtrg), drop = FALSE]
       }
@@ -1214,7 +1234,9 @@ fit_resample <- function(x, outcome, splits,
           if (identical(mname, "macro_f1")) return(.multiclass_macro_f1(yte, pred_class))
           if (identical(mname, "log_loss")) {
             if (is.null(prob_mat)) {
-              stop("log_loss requires class probability predictions for multiclass tasks.")
+              warning("log_loss requires class probability predictions; returning NA.",
+                      call. = FALSE)
+              return(NA_real_)
             }
             return(.multiclass_log_loss(yte, prob_mat))
           }
@@ -1274,6 +1296,7 @@ fit_resample <- function(x, outcome, splits,
   folds <- splits@indices
   nfold <- length(folds)
   fold_errors <- rep(NA_character_, nfold)
+  parallel_run <- parallel && requireNamespace("future.apply", quietly = TRUE)
 
   # progress bar --------------------------------------------------------------
   pb <- utils::txtProgressBar(min = 0, max = nfold, style = 3)
@@ -1281,23 +1304,27 @@ fit_resample <- function(x, outcome, splits,
   progress_wrap <- function(f) {
     local_fold_id <- f$fold_seq %||% f$fold
     start_time <- proc.time()
+    err_msg <- NULL
     res <- tryCatch(do_fold(f), error = function(e) {
+      err_msg <<- conditionMessage(e)
       fold_errors[[local_fold_id]] <<- conditionMessage(e)
       warning(sprintf("Fold %s failed: %s", local_fold_id, e$message)); NULL
     })
     elapsed <- (proc.time() - start_time)[["elapsed"]]
     if (is.null(res)) {
-      res <- structure(list(), elapsed_sec = elapsed)
+      res <- structure(list(), elapsed_sec = elapsed, fold_error = err_msg)
     } else {
       attr(res, "elapsed_sec") <- elapsed
     }
-    pb_counter <<- pb_counter + 1
-    utils::setTxtProgressBar(pb, pb_counter)
+    if (!isTRUE(parallel_run)) {
+      pb_counter <<- pb_counter + 1
+      utils::setTxtProgressBar(pb, pb_counter)
+    }
     res
   }
 
   # parallel or sequential execution -----------------------------------------
-  if (parallel && requireNamespace("future.apply", quietly = TRUE)) {
+  if (isTRUE(parallel_run)) {
     out <- future.apply::future_lapply(seq_along(folds), function(i) {
       fold <- folds[[i]]
       fold$fold_seq <- i
@@ -1388,8 +1415,8 @@ fit_resample <- function(x, outcome, splits,
 
   for (fold_idx in seq_along(out)) {
     if (!is.null(fold_status_rows[[fold_idx]])) next
-    err_note <- fold_errors[[fold_idx]]
-    if (is.na(err_note)) err_note <- "Fold failed before producing any learner results."
+    err_note <- attr(out[[fold_idx]], "fold_error") %||% fold_errors[[fold_idx]]
+    if (is.null(err_note) || is.na(err_note)) err_note <- "Fold failed before producing any learner results."
     fold_elapsed <- attr(out[[fold_idx]], "elapsed_sec") %||% NA_real_
     fold_status_rows[[fold_idx]] <- data.frame(
       fold = fold_idx,

@@ -71,11 +71,13 @@ test_that("check_split_overlap works for combined mode and checks both axes", {
     outcome = rbinom(60, 1, 0.5),
     x1 = rnorm(60)
   )
-  splits <- make_split_plan(df, outcome = "outcome",
-                            mode = "combined",
-                            primary_axis = list(type = "subject", col = "subject"),
-                            secondary_axis = list(type = "batch", col = "batch"),
-                            v = 3, progress = FALSE)
+  splits <- suppressWarnings(make_split_plan(
+    df, outcome = "outcome",
+    mode = "combined",
+    primary_axis = list(type = "subject", col = "subject"),
+    secondary_axis = list(type = "batch", col = "batch"),
+    v = 3, progress = FALSE
+  ))
   result <- check_split_overlap(splits)
   # Both subject and batch columns should show no overlap
   expect_true(all(result$pass))

@@ -57,20 +57,24 @@ test_that("same seed -> identical splits (batch_blocked)", {
 
 test_that("same seed -> identical splits (combined mode)", {
   df <- .make_invariant_df()
-  s1 <- make_split_plan(df, outcome = "outcome",
-                        mode = "combined",
-                        constraints = list(
-                          list(type = "subject", col = "subject"),
-                          list(type = "batch", col = "batch")
-                        ),
-                        v = 3, seed = 5, progress = FALSE)
-  s2 <- make_split_plan(df, outcome = "outcome",
-                        mode = "combined",
-                        constraints = list(
-                          list(type = "subject", col = "subject"),
-                          list(type = "batch", col = "batch")
-                        ),
-                        v = 3, seed = 5, progress = FALSE)
+  s1 <- suppressWarnings(make_split_plan(
+    df, outcome = "outcome",
+    mode = "combined",
+    constraints = list(
+      list(type = "subject", col = "subject"),
+      list(type = "batch", col = "batch")
+    ),
+    v = 3, seed = 5, progress = FALSE
+  ))
+  s2 <- suppressWarnings(make_split_plan(
+    df, outcome = "outcome",
+    mode = "combined",
+    constraints = list(
+      list(type = "subject", col = "subject"),
+      list(type = "batch", col = "batch")
+    ),
+    v = 3, seed = 5, progress = FALSE
+  ))
   expect_identical(s1@indices, s2@indices)
 })
 
