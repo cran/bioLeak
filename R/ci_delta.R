@@ -9,7 +9,9 @@
   if (!is.finite(var_perm) || var_perm == 0) {
     se_obs <- ifelse(is.finite(se_obs), se_obs, 0)
     z <- if (se_obs > 0) delta / se_obs else NA_real_
-    ci <- delta + c(-1.96, 1.96) * se_obs
+    alpha <- (1 - level) / 2
+    q0 <- stats::qnorm(c(alpha, 1 - alpha))
+    ci <- delta + q0 * se_obs
     return(list(se = se_obs, ci = round(ci, 6), z = z))
   }
 

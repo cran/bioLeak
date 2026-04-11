@@ -1,3 +1,9 @@
+# Safe sample that avoids the R sample(x) gotcha when length(x) == 1 -----------
+.safe_sample <- function(x) {
+  if (length(x) <= 1L) return(x)
+  x[sample.int(length(x))]
+}
+
 # Restricted permutation engines ------------------------------------------------
 
 #' Quantile break cache for permutation stratification
@@ -260,7 +266,7 @@
           # correct null and avoids degenerate/inflated-Type-I-error behaviour
           # from block permutation constrained by subject size and outcome strata.
           if (!isTRUE(perm_refit)) {
-            sample(y_all[te_idx])
+            .safe_sample(y_all[te_idx])
           } else {
             subj_col <- if (!is.null(group_col) && group_col %in% names(cd)) cd[[group_col]] else NULL
             if (is.null(subj_col) && "group" %in% names(cd)) subj_col <- cd[["group"]]
@@ -280,7 +286,7 @@
           # collapses to the identity when each test fold is a single batch
           # (because shuffling within batch × outcome cells changes nothing).
           if (!isTRUE(perm_refit)) {
-            sample(y_all[te_idx])
+            .safe_sample(y_all[te_idx])
           } else {
             batch_vals <- NULL
             if (!is.null(batch_col) && batch_col %in% names(cd)) batch_vals <- cd[[batch_col]]
@@ -303,7 +309,7 @@
           # collapses to the identity when each test fold is a single study
           # (because shuffling within study × outcome cells changes nothing).
           if (!isTRUE(perm_refit)) {
-            sample(y_all[te_idx])
+            .safe_sample(y_all[te_idx])
           } else {
             study_vals <- NULL
             if (!is.null(study_col) && study_col %in% names(cd)) study_vals <- cd[[study_col]]
@@ -345,7 +351,7 @@
           perm_time[pos]
         },
         {
-          sample(y_all[te_idx])
+          .safe_sample(y_all[te_idx])
         }
       )
       res[[i]] <- permuted

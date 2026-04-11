@@ -21,7 +21,7 @@
   if (all(!is.finite(x))) return(x)
   m <- if (is.null(center)) stats::median(x, na.rm = TRUE) else center
   s <- if (is.null(scale)) stats::mad(x, na.rm = TRUE, constant = 1) else scale
-  if (!is.finite(m) || !is.finite(s)) return(x)
+  if (!is.finite(m) || !is.finite(s) || s == 0) return(x)
   lo <- m - k * s; hi <- m + k * s
   x[x < lo] <- lo
   x[x > hi] <- hi

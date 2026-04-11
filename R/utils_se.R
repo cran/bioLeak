@@ -136,7 +136,7 @@
   if (.bio_is_survival(y)) return(FALSE)
   if (is.factor(y)) return(nlevels(y) == 2)
   if (is.numeric(y)) {
-    u <- sort(unique(y))
+    u <- sort(unique(y[!is.na(y)]))
     return(length(u) == 2 && all(u %in% c(0,1)))
   }
   FALSE

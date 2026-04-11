@@ -49,6 +49,7 @@
 .stationary_bootstrap <- function(idx, mean_block) {
   stopifnot(length(idx) > 0L, is.numeric(mean_block), mean_block > 0)
   n <- length(idx)
+  if (n == 1L) return(idx)
   mean_block <- max(1, mean_block)
   p <- 1 / mean_block
 

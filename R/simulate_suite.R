@@ -223,6 +223,7 @@ simulate_leakage_suite <- function(
 
 
 .simulate_dataset <- function(n, p, prevalence, mode, leakage, rho, signal_strength = 1) {
+  if (abs(rho) > 1) stop("'rho' must be in [-1, 1]; got ", rho, call. = FALSE)
   X <- matrix(rnorm(n * p), n, p)
   colnames(X) <- sprintf("x%02d", seq_len(p))
   subject <- sample(seq_len(max(5, n %/% 5)), n, replace = TRUE)

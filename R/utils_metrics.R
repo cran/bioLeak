@@ -64,7 +64,8 @@
     2 * prec * rec / (prec + rec)
   }, numeric(1))
   if (all(is.na(f1_vals))) return(NA_real_)
-  mean(f1_vals, na.rm = TRUE)
+  f1_vals[is.na(f1_vals)] <- 0
+  mean(f1_vals)
 }
 
 .multiclass_log_loss <- function(truth, prob, eps = 1e-15) {

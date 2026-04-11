@@ -511,14 +511,20 @@ delta_lsi <- function(
         stringsAsFactors = FALSE
       )
     })
-    do.call(rbind, Filter(Negate(is.null), rows))
+    out <- do.call(rbind, Filter(Negate(is.null), rows))
+    if (is.null(out)) {
+      out <- data.frame(repeat_id = integer(0), metric = numeric(0),
+                        n_folds = integer(0), total_n = integer(0),
+                        stringsAsFactors = FALSE)
+    }
+    out
   }
 
   reps_n <- .agg_repeats(folds_n)
   reps_g <- .agg_repeats(folds_g)
 
-  R_naive   <- if (!is.null(reps_n)) nrow(reps_n) else 0L
-  R_guarded <- if (!is.null(reps_g)) nrow(reps_g) else 0L
+  R_naive   <- nrow(reps_n)
+  R_guarded <- nrow(reps_g)
 
   # ── Pairing: equal count AND matching fold structures ─────────────────────
   same_count <- (R_naive > 0L && R_guarded > 0L && R_naive == R_guarded)
