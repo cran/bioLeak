@@ -11,7 +11,7 @@
 
 <meta name="author" content="Selçuk Korkmaz" />
 
-<meta name="date" content="2026-04-12" />
+<meta name="date" content="2026-04-29" />
 
 <title>bioLeak: Leakage-Aware Biomedical Modeling</title>
 
@@ -1572,7 +1572,7 @@ border-radius: 0px;
 <h1 class="title toc-ignore">bioLeak: Leakage-Aware Biomedical
 Modeling</h1>
 <h4 class="author">Selçuk Korkmaz</h4>
-<h4 class="date">2026-04-12</h4>
+<h4 class="date">2026-04-29</h4>
 
 </div>
 
@@ -2129,16 +2129,18 @@ and imputation</h2>
 from global imputation, scaling, and feature selection. The low-level
 API is:</p>
 <ul>
-<li><code>.guard_fit()</code> to fit preprocessing on training data
+<li><code>guard_fit()</code> to fit preprocessing on training data
 only</li>
-<li><code>predict_guard()</code> to apply the trained guard to new
-data</li>
-<li><code>.guard_ensure_levels()</code> to align factor levels across
+<li><code>predict()</code> (dispatching to
+<code>predict.GuardFit()</code>) to apply the trained guard to new data;
+the legacy alias <code>predict_guard()</code> is also kept for backward
+compatibility</li>
+<li><code>guard_ensure_levels()</code> to align factor levels across
 train/test</li>
 <li><code>impute_guarded()</code> as a convenience wrapper for
 leakage-safe imputation</li>
 </ul>
-<p><code>.guard_fit()</code> fits a pipeline that can winsorize, impute,
+<p><code>guard_fit()</code> fits a pipeline that can winsorize, impute,
 normalize, filter, and select features. It one-hot encodes non-numeric
 columns and carries factor levels forward to new data. Assumptions and
 misuse to avoid:</p>
@@ -2189,7 +2191,7 @@ only</strong></p>
 <span id="cb12-2"><a href="#cb12-2" tabindex="-1"></a>train_x <span class="ot">&lt;-</span> df[fold1<span class="sc">$</span>train, predictors]</span>
 <span id="cb12-3"><a href="#cb12-3" tabindex="-1"></a>test_x <span class="ot">&lt;-</span> df[fold1<span class="sc">$</span>test, predictors]</span>
 <span id="cb12-4"><a href="#cb12-4" tabindex="-1"></a></span>
-<span id="cb12-5"><a href="#cb12-5" tabindex="-1"></a>guard <span class="ot">&lt;-</span> <span class="fu">.guard_fit</span>(</span>
+<span id="cb12-5"><a href="#cb12-5" tabindex="-1"></a>guard <span class="ot">&lt;-</span> <span class="fu">guard_fit</span>(</span>
 <span id="cb12-6"><a href="#cb12-6" tabindex="-1"></a>  <span class="at">X =</span> train_x,</span>
 <span id="cb12-7"><a href="#cb12-7" tabindex="-1"></a>  <span class="at">y =</span> df<span class="sc">$</span>outcome[fold1<span class="sc">$</span>train],</span>
 <span id="cb12-8"><a href="#cb12-8" tabindex="-1"></a>  <span class="at">steps =</span> <span class="fu">list</span>(</span>
@@ -2201,8 +2203,8 @@ only</strong></p>
 <span id="cb12-14"><a href="#cb12-14" tabindex="-1"></a>  <span class="at">task =</span> <span class="st">&quot;binomial&quot;</span></span>
 <span id="cb12-15"><a href="#cb12-15" tabindex="-1"></a>)</span>
 <span id="cb12-16"><a href="#cb12-16" tabindex="-1"></a></span>
-<span id="cb12-17"><a href="#cb12-17" tabindex="-1"></a>train_x_guarded <span class="ot">&lt;-</span> <span class="fu">predict_guard</span>(guard, train_x)</span>
-<span id="cb12-18"><a href="#cb12-18" tabindex="-1"></a>test_x_guarded <span class="ot">&lt;-</span> <span class="fu">predict_guard</span>(guard, test_x)</span>
+<span id="cb12-17"><a href="#cb12-17" tabindex="-1"></a>train_x_guarded <span class="ot">&lt;-</span> <span class="fu">predict</span>(guard, train_x)</span>
+<span id="cb12-18"><a href="#cb12-18" tabindex="-1"></a>test_x_guarded <span class="ot">&lt;-</span> <span class="fu">predict</span>(guard, test_x)</span>
 <span id="cb12-19"><a href="#cb12-19" tabindex="-1"></a></span>
 <span id="cb12-20"><a href="#cb12-20" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;GuardFit object:</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
 <span id="cb12-21"><a href="#cb12-21" tabindex="-1"></a><span class="co">#&gt; GuardFit object:</span></span>
@@ -2260,7 +2262,7 @@ never influences these values.</p>
 <span id="cb13-4"><a href="#cb13-4" tabindex="-1"></a>  <span class="at">stringsAsFactors =</span> <span class="cn">FALSE</span></span>
 <span id="cb13-5"><a href="#cb13-5" tabindex="-1"></a>)</span>
 <span id="cb13-6"><a href="#cb13-6" tabindex="-1"></a></span>
-<span id="cb13-7"><a href="#cb13-7" tabindex="-1"></a>level_state <span class="ot">&lt;-</span> <span class="fu">.guard_ensure_levels</span>(raw_levels)</span>
+<span id="cb13-7"><a href="#cb13-7" tabindex="-1"></a>level_state <span class="ot">&lt;-</span> <span class="fu">guard_ensure_levels</span>(raw_levels)</span>
 <span id="cb13-8"><a href="#cb13-8" tabindex="-1"></a></span>
 <span id="cb13-9"><a href="#cb13-9" tabindex="-1"></a><span class="co"># Aligned factor data with consistent levels</span></span>
 <span id="cb13-10"><a href="#cb13-10" tabindex="-1"></a>level_state<span class="sc">$</span>data</span>
@@ -2348,7 +2350,7 @@ learned from the training data, preserving a clean separation between
 training and evaluation. The <code>LeakImpute</code> object also
 contains missingness diagnostics in
 <code>imp$summary$diagnostics</code>, and guarded outputs use the same
-encoding as <code>.guard_fit()</code> (categorical variables are one-hot
+encoding as <code>guard_fit()</code> (categorical variables are one-hot
 encoded). Use <code>vars</code> to impute only a subset of columns when
 needed.</p>
 <p><strong>Bridging guard steps to recipes:
@@ -2633,11 +2635,11 @@ permutations. When multiple learners are passed,
 <div class="sourceCode" id="cb20"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" tabindex="-1"></a><span class="co"># Fold-level diagnostics for reproducible troubleshooting</span></span>
 <span id="cb20-2"><a href="#cb20-2" tabindex="-1"></a><span class="fu">head</span>(fit_safe<span class="sc">@</span>info<span class="sc">$</span>fold_status, <span class="dv">5</span>)</span>
 <span id="cb20-3"><a href="#cb20-3" tabindex="-1"></a><span class="co">#&gt;   fold    stage  status reason                    notes elapsed_sec</span></span>
-<span id="cb20-4"><a href="#cb20-4" tabindex="-1"></a><span class="co">#&gt; 1    1 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.009</span></span>
-<span id="cb20-5"><a href="#cb20-5" tabindex="-1"></a><span class="co">#&gt; 2    2 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.008</span></span>
-<span id="cb20-6"><a href="#cb20-6" tabindex="-1"></a><span class="co">#&gt; 3    3 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.008</span></span>
-<span id="cb20-7"><a href="#cb20-7" tabindex="-1"></a><span class="co">#&gt; 4    4 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.007</span></span>
-<span id="cb20-8"><a href="#cb20-8" tabindex="-1"></a><span class="co">#&gt; 5    5 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.009</span></span></code></pre></div>
+<span id="cb20-4"><a href="#cb20-4" tabindex="-1"></a><span class="co">#&gt; 1    1 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.015</span></span>
+<span id="cb20-5"><a href="#cb20-5" tabindex="-1"></a><span class="co">#&gt; 2    2 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.015</span></span>
+<span id="cb20-6"><a href="#cb20-6" tabindex="-1"></a><span class="co">#&gt; 3    3 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.014</span></span>
+<span id="cb20-7"><a href="#cb20-7" tabindex="-1"></a><span class="co">#&gt; 4    4 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.015</span></span>
+<span id="cb20-8"><a href="#cb20-8" tabindex="-1"></a><span class="co">#&gt; 5    5 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.015</span></span></code></pre></div>
 <p>Interpretation of <code>fold_status</code>:</p>
 <ul>
 <li><code>status = &quot;success&quot;</code> means at least one learner produced
@@ -2915,64 +2917,70 @@ map group/batch/study/time metadata.</li>
 <li><code>as_rsample()</code> converts <code>LeakSplits</code> to an
 <code>rsample</code> object.</li>
 </ul>
-<div class="sourceCode" id="cb25"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" tabindex="-1"></a><span class="fu">library</span>(bioLeak)</span>
-<span id="cb25-2"><a href="#cb25-2" tabindex="-1"></a><span class="fu">library</span>(parsnip)</span>
-<span id="cb25-3"><a href="#cb25-3" tabindex="-1"></a><span class="fu">library</span>(recipes)</span>
-<span id="cb25-4"><a href="#cb25-4" tabindex="-1"></a><span class="fu">library</span>(yardstick)</span>
-<span id="cb25-5"><a href="#cb25-5" tabindex="-1"></a></span>
-<span id="cb25-6"><a href="#cb25-6" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">123</span>)</span>
-<span id="cb25-7"><a href="#cb25-7" tabindex="-1"></a>N <span class="ot">&lt;-</span> <span class="dv">60</span></span>
-<span id="cb25-8"><a href="#cb25-8" tabindex="-1"></a>df <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
-<span id="cb25-9"><a href="#cb25-9" tabindex="-1"></a>  <span class="at">subject =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">paste0</span>(<span class="st">&quot;S&quot;</span>, <span class="dv">1</span><span class="sc">:</span><span class="dv">20</span>), <span class="at">length.out =</span> N)), </span>
-<span id="cb25-10"><a href="#cb25-10" tabindex="-1"></a>  <span class="at">outcome =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">&quot;ClassA&quot;</span>, <span class="st">&quot;ClassB&quot;</span>), <span class="at">length.out =</span> N)),</span>
-<span id="cb25-11"><a href="#cb25-11" tabindex="-1"></a>  <span class="at">x1 =</span> <span class="fu">rnorm</span>(N),</span>
-<span id="cb25-12"><a href="#cb25-12" tabindex="-1"></a>  <span class="at">x2 =</span> <span class="fu">rnorm</span>(N),</span>
-<span id="cb25-13"><a href="#cb25-13" tabindex="-1"></a>  <span class="at">x3 =</span> <span class="fu">rnorm</span>(N)</span>
-<span id="cb25-14"><a href="#cb25-14" tabindex="-1"></a>)</span>
-<span id="cb25-15"><a href="#cb25-15" tabindex="-1"></a></span>
-<span id="cb25-16"><a href="#cb25-16" tabindex="-1"></a>spec <span class="ot">&lt;-</span> <span class="fu">logistic_reg</span>() <span class="sc">|&gt;</span> <span class="fu">set_engine</span>(<span class="st">&quot;glm&quot;</span>)</span>
-<span id="cb25-17"><a href="#cb25-17" tabindex="-1"></a></span>
-<span id="cb25-18"><a href="#cb25-18" tabindex="-1"></a><span class="co"># Use bioLeak&#39;s native split planner to avoid conversion errors</span></span>
-<span id="cb25-19"><a href="#cb25-19" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">13</span>)</span>
-<span id="cb25-20"><a href="#cb25-20" tabindex="-1"></a></span>
-<span id="cb25-21"><a href="#cb25-21" tabindex="-1"></a><span class="co"># Use make_split_plan instead of rsample::group_vfold_cv</span></span>
-<span id="cb25-22"><a href="#cb25-22" tabindex="-1"></a><span class="co"># This creates a subject-grouped CV directly compatible with fit_resample</span></span>
-<span id="cb25-23"><a href="#cb25-23" tabindex="-1"></a>splits <span class="ot">&lt;-</span> <span class="fu">make_split_plan</span>(</span>
-<span id="cb25-24"><a href="#cb25-24" tabindex="-1"></a>  df, </span>
-<span id="cb25-25"><a href="#cb25-25" tabindex="-1"></a>  <span class="at">outcome =</span> <span class="st">&quot;outcome&quot;</span>, </span>
-<span id="cb25-26"><a href="#cb25-26" tabindex="-1"></a>  <span class="at">mode =</span> <span class="st">&quot;subject_grouped&quot;</span>, </span>
-<span id="cb25-27"><a href="#cb25-27" tabindex="-1"></a>  <span class="at">group =</span> <span class="st">&quot;subject&quot;</span>, </span>
-<span id="cb25-28"><a href="#cb25-28" tabindex="-1"></a>  <span class="at">v =</span> <span class="dv">3</span></span>
-<span id="cb25-29"><a href="#cb25-29" tabindex="-1"></a>)</span>
-<span id="cb25-30"><a href="#cb25-30" tabindex="-1"></a></span>
-<span id="cb25-31"><a href="#cb25-31" tabindex="-1"></a>rec <span class="ot">&lt;-</span> recipes<span class="sc">::</span><span class="fu">recipe</span>(outcome <span class="sc">~</span> x1 <span class="sc">+</span> x2 <span class="sc">+</span> x3, <span class="at">data =</span> df) <span class="sc">|&gt;</span></span>
-<span id="cb25-32"><a href="#cb25-32" tabindex="-1"></a>  recipes<span class="sc">::</span><span class="fu">step_impute_median</span>(recipes<span class="sc">::</span><span class="fu">all_numeric_predictors</span>()) <span class="sc">|&gt;</span></span>
-<span id="cb25-33"><a href="#cb25-33" tabindex="-1"></a>  recipes<span class="sc">::</span><span class="fu">step_normalize</span>(recipes<span class="sc">::</span><span class="fu">all_numeric_predictors</span>())</span>
-<span id="cb25-34"><a href="#cb25-34" tabindex="-1"></a></span>
-<span id="cb25-35"><a href="#cb25-35" tabindex="-1"></a>metrics_set <span class="ot">&lt;-</span> yardstick<span class="sc">::</span><span class="fu">metric_set</span>(yardstick<span class="sc">::</span>roc_auc, yardstick<span class="sc">::</span>accuracy)</span>
+<div class="sourceCode" id="cb25"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" tabindex="-1"></a><span class="do">## This chunk requires the recipes and yardstick packages, which are</span></span>
+<span id="cb25-2"><a href="#cb25-2" tabindex="-1"></a><span class="do">## listed in DESCRIPTION&#39;s Suggests rather than Imports. The eval=</span></span>
+<span id="cb25-3"><a href="#cb25-3" tabindex="-1"></a><span class="do">## option above gates the chunk on their availability, so the vignette</span></span>
+<span id="cb25-4"><a href="#cb25-4" tabindex="-1"></a><span class="do">## still builds when those packages are absent. Users copying this</span></span>
+<span id="cb25-5"><a href="#cb25-5" tabindex="-1"></a><span class="do">## code into their own R session must have both packages installed</span></span>
+<span id="cb25-6"><a href="#cb25-6" tabindex="-1"></a><span class="do">## (e.g., install.packages(c(&quot;recipes&quot;, &quot;yardstick&quot;))).</span></span>
+<span id="cb25-7"><a href="#cb25-7" tabindex="-1"></a><span class="fu">library</span>(bioLeak)</span>
+<span id="cb25-8"><a href="#cb25-8" tabindex="-1"></a><span class="fu">library</span>(parsnip)</span>
+<span id="cb25-9"><a href="#cb25-9" tabindex="-1"></a><span class="fu">library</span>(recipes)</span>
+<span id="cb25-10"><a href="#cb25-10" tabindex="-1"></a><span class="fu">library</span>(yardstick)</span>
+<span id="cb25-11"><a href="#cb25-11" tabindex="-1"></a></span>
+<span id="cb25-12"><a href="#cb25-12" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">123</span>)</span>
+<span id="cb25-13"><a href="#cb25-13" tabindex="-1"></a>N <span class="ot">&lt;-</span> <span class="dv">60</span></span>
+<span id="cb25-14"><a href="#cb25-14" tabindex="-1"></a>df <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
+<span id="cb25-15"><a href="#cb25-15" tabindex="-1"></a>  <span class="at">subject =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">paste0</span>(<span class="st">&quot;S&quot;</span>, <span class="dv">1</span><span class="sc">:</span><span class="dv">20</span>), <span class="at">length.out =</span> N)), </span>
+<span id="cb25-16"><a href="#cb25-16" tabindex="-1"></a>  <span class="at">outcome =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">&quot;ClassA&quot;</span>, <span class="st">&quot;ClassB&quot;</span>), <span class="at">length.out =</span> N)),</span>
+<span id="cb25-17"><a href="#cb25-17" tabindex="-1"></a>  <span class="at">x1 =</span> <span class="fu">rnorm</span>(N),</span>
+<span id="cb25-18"><a href="#cb25-18" tabindex="-1"></a>  <span class="at">x2 =</span> <span class="fu">rnorm</span>(N),</span>
+<span id="cb25-19"><a href="#cb25-19" tabindex="-1"></a>  <span class="at">x3 =</span> <span class="fu">rnorm</span>(N)</span>
+<span id="cb25-20"><a href="#cb25-20" tabindex="-1"></a>)</span>
+<span id="cb25-21"><a href="#cb25-21" tabindex="-1"></a></span>
+<span id="cb25-22"><a href="#cb25-22" tabindex="-1"></a>spec <span class="ot">&lt;-</span> <span class="fu">logistic_reg</span>() <span class="sc">|&gt;</span> <span class="fu">set_engine</span>(<span class="st">&quot;glm&quot;</span>)</span>
+<span id="cb25-23"><a href="#cb25-23" tabindex="-1"></a></span>
+<span id="cb25-24"><a href="#cb25-24" tabindex="-1"></a><span class="co"># Use bioLeak&#39;s native split planner to avoid conversion errors</span></span>
+<span id="cb25-25"><a href="#cb25-25" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">13</span>)</span>
+<span id="cb25-26"><a href="#cb25-26" tabindex="-1"></a></span>
+<span id="cb25-27"><a href="#cb25-27" tabindex="-1"></a><span class="co"># Use make_split_plan instead of rsample::group_vfold_cv</span></span>
+<span id="cb25-28"><a href="#cb25-28" tabindex="-1"></a><span class="co"># This creates a subject-grouped CV directly compatible with fit_resample</span></span>
+<span id="cb25-29"><a href="#cb25-29" tabindex="-1"></a>splits <span class="ot">&lt;-</span> <span class="fu">make_split_plan</span>(</span>
+<span id="cb25-30"><a href="#cb25-30" tabindex="-1"></a>  df, </span>
+<span id="cb25-31"><a href="#cb25-31" tabindex="-1"></a>  <span class="at">outcome =</span> <span class="st">&quot;outcome&quot;</span>, </span>
+<span id="cb25-32"><a href="#cb25-32" tabindex="-1"></a>  <span class="at">mode =</span> <span class="st">&quot;subject_grouped&quot;</span>, </span>
+<span id="cb25-33"><a href="#cb25-33" tabindex="-1"></a>  <span class="at">group =</span> <span class="st">&quot;subject&quot;</span>, </span>
+<span id="cb25-34"><a href="#cb25-34" tabindex="-1"></a>  <span class="at">v =</span> <span class="dv">3</span></span>
+<span id="cb25-35"><a href="#cb25-35" tabindex="-1"></a>)</span>
 <span id="cb25-36"><a href="#cb25-36" tabindex="-1"></a></span>
-<span id="cb25-37"><a href="#cb25-37" tabindex="-1"></a>fit_rs <span class="ot">&lt;-</span> <span class="fu">fit_resample</span>(</span>
-<span id="cb25-38"><a href="#cb25-38" tabindex="-1"></a>  df,</span>
-<span id="cb25-39"><a href="#cb25-39" tabindex="-1"></a>  <span class="at">outcome =</span> <span class="st">&quot;outcome&quot;</span>,</span>
-<span id="cb25-40"><a href="#cb25-40" tabindex="-1"></a>  <span class="at">splits =</span> splits,</span>
-<span id="cb25-41"><a href="#cb25-41" tabindex="-1"></a>  <span class="at">learner =</span> spec,</span>
-<span id="cb25-42"><a href="#cb25-42" tabindex="-1"></a>  <span class="at">preprocess =</span> rec,</span>
-<span id="cb25-43"><a href="#cb25-43" tabindex="-1"></a>  <span class="at">metrics =</span> metrics_set,</span>
-<span id="cb25-44"><a href="#cb25-44" tabindex="-1"></a>  <span class="at">refit =</span> <span class="cn">FALSE</span></span>
-<span id="cb25-45"><a href="#cb25-45" tabindex="-1"></a>)</span>
-<span id="cb25-46"><a href="#cb25-46" tabindex="-1"></a><span class="co">#&gt;   |                                                                              |                                                                      |   0%  |                                                                              |=======================                                               |  33%  |                                                                              |===============================================                       |  67%  |                                                                              |======================================================================| 100%</span></span>
-<span id="cb25-47"><a href="#cb25-47" tabindex="-1"></a></span>
-<span id="cb25-48"><a href="#cb25-48" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">exists</span>(<span class="st">&quot;as_rsample&quot;</span>, <span class="at">where =</span> <span class="fu">asNamespace</span>(<span class="st">&quot;bioLeak&quot;</span>), <span class="at">mode =</span> <span class="st">&quot;function&quot;</span>)) {</span>
-<span id="cb25-49"><a href="#cb25-49" tabindex="-1"></a>    rs_export <span class="ot">&lt;-</span> <span class="fu">as_rsample</span>(fit_rs<span class="sc">@</span>splits, <span class="at">data =</span> df)</span>
-<span id="cb25-50"><a href="#cb25-50" tabindex="-1"></a>    <span class="fu">print</span>(rs_export)</span>
-<span id="cb25-51"><a href="#cb25-51" tabindex="-1"></a>}</span>
-<span id="cb25-52"><a href="#cb25-52" tabindex="-1"></a><span class="co">#&gt; # Manual resampling </span></span>
-<span id="cb25-53"><a href="#cb25-53" tabindex="-1"></a><span class="co">#&gt; # A tibble: 3 × 2</span></span>
-<span id="cb25-54"><a href="#cb25-54" tabindex="-1"></a><span class="co">#&gt;   splits          id   </span></span>
-<span id="cb25-55"><a href="#cb25-55" tabindex="-1"></a><span class="co">#&gt;   &lt;list&gt;          &lt;chr&gt;</span></span>
-<span id="cb25-56"><a href="#cb25-56" tabindex="-1"></a><span class="co">#&gt; 1 &lt;split [39/21]&gt; Fold1</span></span>
-<span id="cb25-57"><a href="#cb25-57" tabindex="-1"></a><span class="co">#&gt; 2 &lt;split [39/21]&gt; Fold2</span></span>
-<span id="cb25-58"><a href="#cb25-58" tabindex="-1"></a><span class="co">#&gt; 3 &lt;split [42/18]&gt; Fold3</span></span></code></pre></div>
+<span id="cb25-37"><a href="#cb25-37" tabindex="-1"></a>rec <span class="ot">&lt;-</span> recipes<span class="sc">::</span><span class="fu">recipe</span>(outcome <span class="sc">~</span> x1 <span class="sc">+</span> x2 <span class="sc">+</span> x3, <span class="at">data =</span> df) <span class="sc">|&gt;</span></span>
+<span id="cb25-38"><a href="#cb25-38" tabindex="-1"></a>  recipes<span class="sc">::</span><span class="fu">step_impute_median</span>(recipes<span class="sc">::</span><span class="fu">all_numeric_predictors</span>()) <span class="sc">|&gt;</span></span>
+<span id="cb25-39"><a href="#cb25-39" tabindex="-1"></a>  recipes<span class="sc">::</span><span class="fu">step_normalize</span>(recipes<span class="sc">::</span><span class="fu">all_numeric_predictors</span>())</span>
+<span id="cb25-40"><a href="#cb25-40" tabindex="-1"></a></span>
+<span id="cb25-41"><a href="#cb25-41" tabindex="-1"></a>metrics_set <span class="ot">&lt;-</span> yardstick<span class="sc">::</span><span class="fu">metric_set</span>(yardstick<span class="sc">::</span>roc_auc, yardstick<span class="sc">::</span>accuracy)</span>
+<span id="cb25-42"><a href="#cb25-42" tabindex="-1"></a></span>
+<span id="cb25-43"><a href="#cb25-43" tabindex="-1"></a>fit_rs <span class="ot">&lt;-</span> <span class="fu">fit_resample</span>(</span>
+<span id="cb25-44"><a href="#cb25-44" tabindex="-1"></a>  df,</span>
+<span id="cb25-45"><a href="#cb25-45" tabindex="-1"></a>  <span class="at">outcome =</span> <span class="st">&quot;outcome&quot;</span>,</span>
+<span id="cb25-46"><a href="#cb25-46" tabindex="-1"></a>  <span class="at">splits =</span> splits,</span>
+<span id="cb25-47"><a href="#cb25-47" tabindex="-1"></a>  <span class="at">learner =</span> spec,</span>
+<span id="cb25-48"><a href="#cb25-48" tabindex="-1"></a>  <span class="at">preprocess =</span> rec,</span>
+<span id="cb25-49"><a href="#cb25-49" tabindex="-1"></a>  <span class="at">metrics =</span> metrics_set,</span>
+<span id="cb25-50"><a href="#cb25-50" tabindex="-1"></a>  <span class="at">refit =</span> <span class="cn">FALSE</span></span>
+<span id="cb25-51"><a href="#cb25-51" tabindex="-1"></a>)</span>
+<span id="cb25-52"><a href="#cb25-52" tabindex="-1"></a><span class="co">#&gt;   |                                                                              |                                                                      |   0%  |                                                                              |=======================                                               |  33%  |                                                                              |===============================================                       |  67%  |                                                                              |======================================================================| 100%</span></span>
+<span id="cb25-53"><a href="#cb25-53" tabindex="-1"></a></span>
+<span id="cb25-54"><a href="#cb25-54" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">exists</span>(<span class="st">&quot;as_rsample&quot;</span>, <span class="at">where =</span> <span class="fu">asNamespace</span>(<span class="st">&quot;bioLeak&quot;</span>), <span class="at">mode =</span> <span class="st">&quot;function&quot;</span>)) {</span>
+<span id="cb25-55"><a href="#cb25-55" tabindex="-1"></a>    rs_export <span class="ot">&lt;-</span> <span class="fu">as_rsample</span>(fit_rs<span class="sc">@</span>splits, <span class="at">data =</span> df)</span>
+<span id="cb25-56"><a href="#cb25-56" tabindex="-1"></a>    <span class="fu">print</span>(rs_export)</span>
+<span id="cb25-57"><a href="#cb25-57" tabindex="-1"></a>}</span>
+<span id="cb25-58"><a href="#cb25-58" tabindex="-1"></a><span class="co">#&gt; # Manual resampling </span></span>
+<span id="cb25-59"><a href="#cb25-59" tabindex="-1"></a><span class="co">#&gt; # A tibble: 3 × 2</span></span>
+<span id="cb25-60"><a href="#cb25-60" tabindex="-1"></a><span class="co">#&gt;   splits          id   </span></span>
+<span id="cb25-61"><a href="#cb25-61" tabindex="-1"></a><span class="co">#&gt;   &lt;list&gt;          &lt;chr&gt;</span></span>
+<span id="cb25-62"><a href="#cb25-62" tabindex="-1"></a><span class="co">#&gt; 1 &lt;split [39/21]&gt; Fold1</span></span>
+<span id="cb25-63"><a href="#cb25-63" tabindex="-1"></a><span class="co">#&gt; 2 &lt;split [39/21]&gt; Fold2</span></span>
+<span id="cb25-64"><a href="#cb25-64" tabindex="-1"></a><span class="co">#&gt; 3 &lt;split [42/18]&gt; Fold3</span></span></code></pre></div>
 <p>Use <code>split_cols</code> to ensure split-defining metadata are
 dropped from predictors when using rsample inputs.</p>
 <div class="sourceCode" id="cb26"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb26-1"><a href="#cb26-1" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">requireNamespace</span>(<span class="st">&quot;workflows&quot;</span>, <span class="at">quietly =</span> <span class="cn">TRUE</span>)) {</span>
@@ -5045,21 +5053,23 @@ parallelism (Windows, macOS, Linux). <code>fit_resample()</code>,
 and <code>simulate_leakage_suite()</code> honor the active plan when
 <code>parallel = TRUE</code> (or
 <code>parallel_learners = TRUE</code>).</p>
-<div class="sourceCode" id="cb55"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb55-1"><a href="#cb55-1" tabindex="-1"></a><span class="fu">library</span>(future)</span>
-<span id="cb55-2"><a href="#cb55-2" tabindex="-1"></a></span>
-<span id="cb55-3"><a href="#cb55-3" tabindex="-1"></a><span class="co"># Use multiple cores (works on all OS)</span></span>
-<span id="cb55-4"><a href="#cb55-4" tabindex="-1"></a><span class="fu">plan</span>(multisession, <span class="at">workers =</span> <span class="dv">4</span>)</span>
-<span id="cb55-5"><a href="#cb55-5" tabindex="-1"></a></span>
-<span id="cb55-6"><a href="#cb55-6" tabindex="-1"></a><span class="co"># Run a heavy simulation</span></span>
-<span id="cb55-7"><a href="#cb55-7" tabindex="-1"></a>sim <span class="ot">&lt;-</span> <span class="fu">simulate_leakage_suite</span>(..., <span class="at">parallel =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb55-8"><a href="#cb55-8" tabindex="-1"></a></span>
-<span id="cb55-9"><a href="#cb55-9" tabindex="-1"></a><span class="co"># Parallel folds or audits</span></span>
-<span id="cb55-10"><a href="#cb55-10" tabindex="-1"></a><span class="co"># fit_resample(..., parallel = TRUE)</span></span>
-<span id="cb55-11"><a href="#cb55-11" tabindex="-1"></a><span class="co"># audit_leakage(..., parallel = TRUE)</span></span>
-<span id="cb55-12"><a href="#cb55-12" tabindex="-1"></a><span class="co"># audit_leakage_by_learner(..., parallel_learners = TRUE)</span></span>
-<span id="cb55-13"><a href="#cb55-13" tabindex="-1"></a></span>
-<span id="cb55-14"><a href="#cb55-14" tabindex="-1"></a><span class="co"># Return to sequential processing</span></span>
-<span id="cb55-15"><a href="#cb55-15" tabindex="-1"></a><span class="fu">plan</span>(sequential)</span></code></pre></div>
+<div class="sourceCode" id="cb55"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb55-1"><a href="#cb55-1" tabindex="-1"></a><span class="do">## future is a Suggests dependency. Install with install.packages(&quot;future&quot;)</span></span>
+<span id="cb55-2"><a href="#cb55-2" tabindex="-1"></a><span class="do">## before running this code; otherwise library(future) errors.</span></span>
+<span id="cb55-3"><a href="#cb55-3" tabindex="-1"></a><span class="fu">library</span>(future)</span>
+<span id="cb55-4"><a href="#cb55-4" tabindex="-1"></a></span>
+<span id="cb55-5"><a href="#cb55-5" tabindex="-1"></a><span class="co"># Use multiple cores (works on all OS)</span></span>
+<span id="cb55-6"><a href="#cb55-6" tabindex="-1"></a><span class="fu">plan</span>(multisession, <span class="at">workers =</span> <span class="dv">4</span>)</span>
+<span id="cb55-7"><a href="#cb55-7" tabindex="-1"></a></span>
+<span id="cb55-8"><a href="#cb55-8" tabindex="-1"></a><span class="co"># Run a heavy simulation</span></span>
+<span id="cb55-9"><a href="#cb55-9" tabindex="-1"></a>sim <span class="ot">&lt;-</span> <span class="fu">simulate_leakage_suite</span>(..., <span class="at">parallel =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb55-10"><a href="#cb55-10" tabindex="-1"></a></span>
+<span id="cb55-11"><a href="#cb55-11" tabindex="-1"></a><span class="co"># Parallel folds or audits</span></span>
+<span id="cb55-12"><a href="#cb55-12" tabindex="-1"></a><span class="co"># fit_resample(..., parallel = TRUE)</span></span>
+<span id="cb55-13"><a href="#cb55-13" tabindex="-1"></a><span class="co"># audit_leakage(..., parallel = TRUE)</span></span>
+<span id="cb55-14"><a href="#cb55-14" tabindex="-1"></a><span class="co"># audit_leakage_by_learner(..., parallel_learners = TRUE)</span></span>
+<span id="cb55-15"><a href="#cb55-15" tabindex="-1"></a></span>
+<span id="cb55-16"><a href="#cb55-16" tabindex="-1"></a><span class="co"># Return to sequential processing</span></span>
+<span id="cb55-17"><a href="#cb55-17" tabindex="-1"></a><span class="fu">plan</span>(sequential)</span></code></pre></div>
 <p>This chunk only configures the parallel plan, so it does not produce
 a result object. Use it as a template before running compute-heavy
 functions.</p>
@@ -5172,10 +5182,10 @@ leakage evidence into mechanism classes (<code>non_random_signal</code>,
 <code>duplicate_overlap</code>, <code>temporal_lookahead</code>).</li>
 <li><code>LeakAuditList</code>: returned by
 <code>audit_leakage_by_learner()</code>, printed directly</li>
-<li><code>GuardFit</code>: returned by <code>.guard_fit()</code>,
-printed and summarized. Use <code>guard_to_recipe()</code> to convert
-guard preprocessing specs to a <code>recipes::recipe</code> for
-tidymodels workflows.</li>
+<li><code>GuardFit</code>: returned by <code>guard_fit()</code>, printed
+and summarized. Use <code>guard_to_recipe()</code> to convert guard
+preprocessing specs to a <code>recipes::recipe</code> for tidymodels
+workflows.</li>
 <li><code>LeakImpute</code>: returned by <code>impute_guarded()</code>
 (guarded data + diagnostics)</li>
 <li><code>LeakTune</code>: returned by <code>tune_resample()</code>

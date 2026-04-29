@@ -1,7 +1,7 @@
 Package: bioLeak
 Type: Package
 Title: Leakage-Safe Modeling and Auditing for Genomic and Clinical Data
-Version: 0.3.6
+Version: 0.3.7
 Authors@R: c(
     person("Selcuk", "Korkmaz", role = c("aut","cre"), email = "selcukorkmaz@gmail.com",
            comment = c(ORCID = "0000-0003-4632-6850"))
@@ -18,18 +18,18 @@ Encoding: UTF-8
 Depends: R (>= 4.3)
 Imports: digest, generics, methods, stats, utils, SummarizedExperiment,
         graphics, hardhat, parsnip
-Suggests: BiocParallel, cli, dials, FNN, future, future.apply, ggplot2,
-        glmnet, mice, missForest, pkgload, ranger, randomForest,
-        recipes, RANN, rsample, tune, VIM, withr, workflows, xgboost,
-        yardstick, pROC, PRROC, survival, knitr, rmarkdown, testthat
-        (>= 3.0.0)
+Suggests: BiocParallel, splitGraph, cli, dials, FNN, future,
+        future.apply, ggplot2, glmnet, mice, missForest, pkgload,
+        ranger, randomForest, recipes, RANN, rsample, tune, VIM, withr,
+        workflows, xgboost, yardstick, pROC, PRROC, survival, knitr,
+        rmarkdown, testthat (>= 3.0.0)
 VignetteBuilder: knitr
 Config/testthat/edition: 3
 RoxygenNote: 7.3.3
 NeedsCompilation: no
-Packaged: 2026-04-11 22:29:17 UTC; selcuk
+Packaged: 2026-04-29 20:07:10 UTC; selcuk
 Author: Selcuk Korkmaz [aut, cre] (ORCID:
     <https://orcid.org/0000-0003-4632-6850>)
 Maintainer: Selcuk Korkmaz <selcukorkmaz@gmail.com>
 Repository: CRAN
-Date/Publication: 2026-04-11 22:50:02 UTC
+Date/Publication: 2026-04-29 20:40:02 UTC

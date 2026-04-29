@@ -236,7 +236,7 @@ fold1 <- safe_splits@indices[[1]]
 train_x <- df[fold1$train, predictors]
 test_x <- df[fold1$test, predictors]
 
-guard <- .guard_fit(
+guard <- guard_fit(
   X = train_x,
   y = df$outcome[fold1$train],
   steps = list(
@@ -248,8 +248,8 @@ guard <- .guard_fit(
   task = "binomial"
 )
 
-train_x_guarded <- predict_guard(guard, train_x)
-test_x_guarded <- predict_guard(guard, test_x)
+train_x_guarded <- predict(guard, train_x)
+test_x_guarded <- predict(guard, test_x)
 
 cat("GuardFit object:\n")
 guard
@@ -269,7 +269,7 @@ raw_levels <- data.frame(
   stringsAsFactors = FALSE
 )
 
-level_state <- .guard_ensure_levels(raw_levels)
+level_state <- guard_ensure_levels(raw_levels)
 
 # Aligned factor data with consistent levels
 level_state$data
@@ -506,7 +506,13 @@ if (requireNamespace("SummarizedExperiment", quietly = TRUE)) {
   cat("SummarizedExperiment not installed; skipping SE example.\n")
 }
 
-## ----tidymodels-interop-------------------------------------------------------
+## ----tidymodels-interop, eval = requireNamespace("recipes", quietly = TRUE) && requireNamespace("yardstick", quietly = TRUE)----
+## This chunk requires the recipes and yardstick packages, which are
+## listed in DESCRIPTION's Suggests rather than Imports. The eval=
+## option above gates the chunk on their availability, so the vignette
+## still builds when those packages are absent. Users copying this
+## code into their own R session must have both packages installed
+## (e.g., install.packages(c("recipes", "yardstick"))).
 library(bioLeak)
 library(parsnip)
 library(recipes)
@@ -1095,6 +1101,8 @@ if (!is.na(result_dlsi@p_value)) {
 }
 
 ## ----parallel-setup, eval=FALSE-----------------------------------------------
+# ## future is a Suggests dependency. Install with install.packages("future")
+# ## before running this code; otherwise library(future) errors.
 # library(future)
 # 
 # # Use multiple cores (works on all OS)
