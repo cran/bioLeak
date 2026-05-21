@@ -385,7 +385,7 @@ metrics_safe[num_cols] <- lapply(metrics_safe[num_cols], round, digits = 3)
 metrics_safe
 
 # Per-fold metrics (first 6 rows)
-head(fit_safe@metrics)
+head(fit_metrics(fit_safe))
 
 ## ----fit-fold-status----------------------------------------------------------
 # Fold-level diagnostics for reproducible troubleshooting
@@ -777,25 +777,29 @@ audit <- audit_leakage(
 
 cat("Leakage audit summary:\n")
 summary(audit)
-if (!is.null(audit@permutation_gap) && nrow(audit@permutation_gap) > 0) {
+pg <- audit_perm_gap(audit)
+if (!is.null(pg) && nrow(pg) > 0) {
   # Permutation significance results
-  audit@permutation_gap
+  pg
 }
-if (!is.null(audit@batch_assoc) && nrow(audit@batch_assoc) > 0) {
+ba <- audit_batch_assoc(audit)
+if (!is.null(ba) && nrow(ba) > 0) {
   # Batch/study association with folds (Cramer's V)
-  audit@batch_assoc
+  ba
 } else {
   cat("No batch or study associations detected.\n")
 }
-if (!is.null(audit@target_assoc) && nrow(audit@target_assoc) > 0) {
+ta <- audit_target_assoc(audit)
+if (!is.null(ta) && nrow(ta) > 0) {
   # Top features by target association score
-  head(audit@target_assoc)
+  head(ta)
 } else {
   cat("No target leakage scan results available.\n")
 }
-if (!is.null(audit@duplicates) && nrow(audit@duplicates) > 0) {
+du <- audit_duplicates(audit)
+if (!is.null(du) && nrow(du) > 0) {
   # Top duplicate/near-duplicate pairs by similarity
-  head(audit@duplicates)
+  head(du)
 } else {
   cat("No near-duplicates detected.\n")
 }

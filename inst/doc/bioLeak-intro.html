@@ -11,7 +11,7 @@
 
 <meta name="author" content="Selçuk Korkmaz" />
 
-<meta name="date" content="2026-04-29" />
+<meta name="date" content="2026-05-21" />
 
 <title>bioLeak: Leakage-Aware Biomedical Modeling</title>
 
@@ -1572,7 +1572,7 @@ border-radius: 0px;
 <h1 class="title toc-ignore">bioLeak: Leakage-Aware Biomedical
 Modeling</h1>
 <h4 class="author">Selçuk Korkmaz</h4>
-<h4 class="date">2026-04-29</h4>
+<h4 class="date">2026-05-21</h4>
 
 </div>
 
@@ -2607,7 +2607,7 @@ predictors</strong></p>
 <span id="cb19-58"><a href="#cb19-58" tabindex="-1"></a><span class="co">#&gt; 1     0.783          0.379          0.816</span></span>
 <span id="cb19-59"><a href="#cb19-59" tabindex="-1"></a></span>
 <span id="cb19-60"><a href="#cb19-60" tabindex="-1"></a><span class="co"># Per-fold metrics (first 6 rows)</span></span>
-<span id="cb19-61"><a href="#cb19-61" tabindex="-1"></a><span class="fu">head</span>(fit_safe<span class="sc">@</span>metrics)</span>
+<span id="cb19-61"><a href="#cb19-61" tabindex="-1"></a><span class="fu">head</span>(<span class="fu">fit_metrics</span>(fit_safe))</span>
 <span id="cb19-62"><a href="#cb19-62" tabindex="-1"></a><span class="co">#&gt;   fold          learner       auc  accuracy</span></span>
 <span id="cb19-63"><a href="#cb19-63" tabindex="-1"></a><span class="co">#&gt; 1    1 logistic_reg/glm 0.6284830 0.5277778</span></span>
 <span id="cb19-64"><a href="#cb19-64" tabindex="-1"></a><span class="co">#&gt; 2    2 logistic_reg/glm 0.7611336 0.7187500</span></span>
@@ -2615,9 +2615,10 @@ predictors</strong></p>
 <span id="cb19-66"><a href="#cb19-66" tabindex="-1"></a><span class="co">#&gt; 4    4 logistic_reg/glm 0.6944444 0.6562500</span></span>
 <span id="cb19-67"><a href="#cb19-67" tabindex="-1"></a><span class="co">#&gt; 5    5 logistic_reg/glm 0.7055556 0.4285714</span></span></code></pre></div>
 <p><code>fit_resample()</code> returns a <code>LeakFit</code> object.
-Use <code>summary(fit_safe)</code> for a compact report and inspect
-<code>fit_safe@metrics</code> and <code>fit_safe@predictions</code> for
-details. When <code>refit = TRUE</code>, the final model and
+Use <code>summary(fit_safe)</code> for a compact report,
+<code>fit_metrics(fit_safe)</code> for the per-fold metric data frame,
+and inspect <code>fit_safe@predictions</code> for fold-level
+predictions. When <code>refit = TRUE</code>, the final model and
 preprocessing state are stored in <code>fit_safe@info$final_model</code>
 and <code>fit_safe@info$final_preprocess</code>. Fold-level status
 diagnostics are available in <code>fit_safe@info$fold_status</code>.</p>
@@ -2635,11 +2636,11 @@ permutations. When multiple learners are passed,
 <div class="sourceCode" id="cb20"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" tabindex="-1"></a><span class="co"># Fold-level diagnostics for reproducible troubleshooting</span></span>
 <span id="cb20-2"><a href="#cb20-2" tabindex="-1"></a><span class="fu">head</span>(fit_safe<span class="sc">@</span>info<span class="sc">$</span>fold_status, <span class="dv">5</span>)</span>
 <span id="cb20-3"><a href="#cb20-3" tabindex="-1"></a><span class="co">#&gt;   fold    stage  status reason                    notes elapsed_sec</span></span>
-<span id="cb20-4"><a href="#cb20-4" tabindex="-1"></a><span class="co">#&gt; 1    1 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.015</span></span>
-<span id="cb20-5"><a href="#cb20-5" tabindex="-1"></a><span class="co">#&gt; 2    2 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.015</span></span>
-<span id="cb20-6"><a href="#cb20-6" tabindex="-1"></a><span class="co">#&gt; 3    3 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.014</span></span>
-<span id="cb20-7"><a href="#cb20-7" tabindex="-1"></a><span class="co">#&gt; 4    4 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.015</span></span>
-<span id="cb20-8"><a href="#cb20-8" tabindex="-1"></a><span class="co">#&gt; 5    5 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.015</span></span></code></pre></div>
+<span id="cb20-4"><a href="#cb20-4" tabindex="-1"></a><span class="co">#&gt; 1    1 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.008</span></span>
+<span id="cb20-5"><a href="#cb20-5" tabindex="-1"></a><span class="co">#&gt; 2    2 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.007</span></span>
+<span id="cb20-6"><a href="#cb20-6" tabindex="-1"></a><span class="co">#&gt; 3    3 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.007</span></span>
+<span id="cb20-7"><a href="#cb20-7" tabindex="-1"></a><span class="co">#&gt; 4    4 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.007</span></span>
+<span id="cb20-8"><a href="#cb20-8" tabindex="-1"></a><span class="co">#&gt; 5    5 fold_run success   &lt;NA&gt; Successful learners: 1/1       0.007</span></span></code></pre></div>
 <p>Interpretation of <code>fold_status</code>:</p>
 <ul>
 <li><code>status = &quot;success&quot;</code> means at least one learner produced
@@ -3542,50 +3543,54 @@ outcomes support it.</p>
 <span id="cb37-87"><a href="#cb37-87" tabindex="-1"></a><span class="co">#&gt; </span></span>
 <span id="cb37-88"><a href="#cb37-88" tabindex="-1"></a><span class="co">#&gt; Interpretation:</span></span>
 <span id="cb37-89"><a href="#cb37-89" tabindex="-1"></a><span class="co">#&gt;   ✓ Modest non-random signal.</span></span>
-<span id="cb37-90"><a href="#cb37-90" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.null</span>(audit<span class="sc">@</span>permutation_gap) <span class="sc">&amp;&amp;</span> <span class="fu">nrow</span>(audit<span class="sc">@</span>permutation_gap) <span class="sc">&gt;</span> <span class="dv">0</span>) {</span>
-<span id="cb37-91"><a href="#cb37-91" tabindex="-1"></a>  <span class="co"># Permutation significance results</span></span>
-<span id="cb37-92"><a href="#cb37-92" tabindex="-1"></a>  audit<span class="sc">@</span>permutation_gap</span>
-<span id="cb37-93"><a href="#cb37-93" tabindex="-1"></a>}</span>
-<span id="cb37-94"><a href="#cb37-94" tabindex="-1"></a><span class="co">#&gt;     mechanism_class metric_obs perm_mean   perm_sd       gap       z  p_value</span></span>
-<span id="cb37-95"><a href="#cb37-95" tabindex="-1"></a><span class="co">#&gt; 1 non_random_signal   0.614111  0.565592 0.0509821 0.0485189 1.08899 0.238095</span></span>
-<span id="cb37-96"><a href="#cb37-96" tabindex="-1"></a><span class="co">#&gt;   n_perm</span></span>
-<span id="cb37-97"><a href="#cb37-97" tabindex="-1"></a><span class="co">#&gt; 1     20</span></span>
-<span id="cb37-98"><a href="#cb37-98" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.null</span>(audit<span class="sc">@</span>batch_assoc) <span class="sc">&amp;&amp;</span> <span class="fu">nrow</span>(audit<span class="sc">@</span>batch_assoc) <span class="sc">&gt;</span> <span class="dv">0</span>) {</span>
-<span id="cb37-99"><a href="#cb37-99" tabindex="-1"></a>  <span class="co"># Batch/study association with folds (Cramer&#39;s V)</span></span>
-<span id="cb37-100"><a href="#cb37-100" tabindex="-1"></a>  audit<span class="sc">@</span>batch_assoc</span>
-<span id="cb37-101"><a href="#cb37-101" tabindex="-1"></a>} <span class="cf">else</span> {</span>
-<span id="cb37-102"><a href="#cb37-102" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">&quot;No batch or study associations detected.</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
-<span id="cb37-103"><a href="#cb37-103" tabindex="-1"></a>}</span>
-<span id="cb37-104"><a href="#cb37-104" tabindex="-1"></a><span class="co">#&gt;             mechanism_class batch_col repeat_id      stat df     pval  cramer_v</span></span>
-<span id="cb37-105"><a href="#cb37-105" tabindex="-1"></a><span class="co">#&gt; batch confounding_alignment     batch         1 17.043088 20 0.650174 0.1631865</span></span>
-<span id="cb37-106"><a href="#cb37-106" tabindex="-1"></a><span class="co">#&gt; study confounding_alignment     study         1  9.487022 12 0.660865 0.1405867</span></span>
-<span id="cb37-107"><a href="#cb37-107" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.null</span>(audit<span class="sc">@</span>target_assoc) <span class="sc">&amp;&amp;</span> <span class="fu">nrow</span>(audit<span class="sc">@</span>target_assoc) <span class="sc">&gt;</span> <span class="dv">0</span>) {</span>
-<span id="cb37-108"><a href="#cb37-108" tabindex="-1"></a>  <span class="co"># Top features by target association score</span></span>
-<span id="cb37-109"><a href="#cb37-109" tabindex="-1"></a>  <span class="fu">head</span>(audit<span class="sc">@</span>target_assoc)</span>
-<span id="cb37-110"><a href="#cb37-110" tabindex="-1"></a>} <span class="cf">else</span> {</span>
-<span id="cb37-111"><a href="#cb37-111" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">&quot;No target leakage scan results available.</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
-<span id="cb37-112"><a href="#cb37-112" tabindex="-1"></a>}</span>
-<span id="cb37-113"><a href="#cb37-113" tabindex="-1"></a><span class="co">#&gt;        mechanism_class feature    type metric     value      score      p_value</span></span>
-<span id="cb37-114"><a href="#cb37-114" tabindex="-1"></a><span class="co">#&gt; 1 proxy_target_leakage      x1 numeric    auc 0.6778149 0.35562988 0.0001205498</span></span>
-<span id="cb37-115"><a href="#cb37-115" tabindex="-1"></a><span class="co">#&gt; 2 proxy_target_leakage      x2 numeric    auc 0.4207676 0.15846472 0.0868346476</span></span>
-<span id="cb37-116"><a href="#cb37-116" tabindex="-1"></a><span class="co">#&gt; 3 proxy_target_leakage      x3 numeric    auc 0.5446727 0.08934544 0.3346967486</span></span>
-<span id="cb37-117"><a href="#cb37-117" tabindex="-1"></a><span class="co">#&gt;     n n_levels  flag p_value_adj flag_fdr</span></span>
-<span id="cb37-118"><a href="#cb37-118" tabindex="-1"></a><span class="co">#&gt; 1 160       NA FALSE          NA    FALSE</span></span>
-<span id="cb37-119"><a href="#cb37-119" tabindex="-1"></a><span class="co">#&gt; 2 160       NA FALSE          NA    FALSE</span></span>
-<span id="cb37-120"><a href="#cb37-120" tabindex="-1"></a><span class="co">#&gt; 3 160       NA FALSE          NA    FALSE</span></span>
-<span id="cb37-121"><a href="#cb37-121" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.null</span>(audit<span class="sc">@</span>duplicates) <span class="sc">&amp;&amp;</span> <span class="fu">nrow</span>(audit<span class="sc">@</span>duplicates) <span class="sc">&gt;</span> <span class="dv">0</span>) {</span>
-<span id="cb37-122"><a href="#cb37-122" tabindex="-1"></a>  <span class="co"># Top duplicate/near-duplicate pairs by similarity</span></span>
-<span id="cb37-123"><a href="#cb37-123" tabindex="-1"></a>  <span class="fu">head</span>(audit<span class="sc">@</span>duplicates)</span>
-<span id="cb37-124"><a href="#cb37-124" tabindex="-1"></a>} <span class="cf">else</span> {</span>
-<span id="cb37-125"><a href="#cb37-125" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">&quot;No near-duplicates detected.</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
-<span id="cb37-126"><a href="#cb37-126" tabindex="-1"></a>}</span>
-<span id="cb37-127"><a href="#cb37-127" tabindex="-1"></a><span class="co">#&gt;      mechanism_class   i   j       sim cross_fold   cos_sim</span></span>
-<span id="cb37-128"><a href="#cb37-128" tabindex="-1"></a><span class="co">#&gt; 1  duplicate_overlap   1   5 1.0000000       TRUE 1.0000000</span></span>
-<span id="cb37-129"><a href="#cb37-129" tabindex="-1"></a><span class="co">#&gt; 12 duplicate_overlap  35  61 0.9994623       TRUE 0.9994623</span></span>
-<span id="cb37-130"><a href="#cb37-130" tabindex="-1"></a><span class="co">#&gt; 18 duplicate_overlap  80 106 0.9990700       TRUE 0.9990700</span></span>
-<span id="cb37-131"><a href="#cb37-131" tabindex="-1"></a><span class="co">#&gt; 25 duplicate_overlap 120 153 0.9978776       TRUE 0.9978776</span></span>
-<span id="cb37-132"><a href="#cb37-132" tabindex="-1"></a><span class="co">#&gt; 4  duplicate_overlap   7 107 0.9976746       TRUE 0.9976746</span></span>
-<span id="cb37-133"><a href="#cb37-133" tabindex="-1"></a><span class="co">#&gt; 22 duplicate_overlap 104 142 0.9968751       TRUE 0.9968751</span></span></code></pre></div>
+<span id="cb37-90"><a href="#cb37-90" tabindex="-1"></a>pg <span class="ot">&lt;-</span> <span class="fu">audit_perm_gap</span>(audit)</span>
+<span id="cb37-91"><a href="#cb37-91" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.null</span>(pg) <span class="sc">&amp;&amp;</span> <span class="fu">nrow</span>(pg) <span class="sc">&gt;</span> <span class="dv">0</span>) {</span>
+<span id="cb37-92"><a href="#cb37-92" tabindex="-1"></a>  <span class="co"># Permutation significance results</span></span>
+<span id="cb37-93"><a href="#cb37-93" tabindex="-1"></a>  pg</span>
+<span id="cb37-94"><a href="#cb37-94" tabindex="-1"></a>}</span>
+<span id="cb37-95"><a href="#cb37-95" tabindex="-1"></a><span class="co">#&gt;     mechanism_class metric_obs perm_mean   perm_sd       gap       z  p_value</span></span>
+<span id="cb37-96"><a href="#cb37-96" tabindex="-1"></a><span class="co">#&gt; 1 non_random_signal   0.614111  0.565592 0.0509821 0.0485189 1.08899 0.238095</span></span>
+<span id="cb37-97"><a href="#cb37-97" tabindex="-1"></a><span class="co">#&gt;   n_perm</span></span>
+<span id="cb37-98"><a href="#cb37-98" tabindex="-1"></a><span class="co">#&gt; 1     20</span></span>
+<span id="cb37-99"><a href="#cb37-99" tabindex="-1"></a>ba <span class="ot">&lt;-</span> <span class="fu">audit_batch_assoc</span>(audit)</span>
+<span id="cb37-100"><a href="#cb37-100" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.null</span>(ba) <span class="sc">&amp;&amp;</span> <span class="fu">nrow</span>(ba) <span class="sc">&gt;</span> <span class="dv">0</span>) {</span>
+<span id="cb37-101"><a href="#cb37-101" tabindex="-1"></a>  <span class="co"># Batch/study association with folds (Cramer&#39;s V)</span></span>
+<span id="cb37-102"><a href="#cb37-102" tabindex="-1"></a>  ba</span>
+<span id="cb37-103"><a href="#cb37-103" tabindex="-1"></a>} <span class="cf">else</span> {</span>
+<span id="cb37-104"><a href="#cb37-104" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">&quot;No batch or study associations detected.</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb37-105"><a href="#cb37-105" tabindex="-1"></a>}</span>
+<span id="cb37-106"><a href="#cb37-106" tabindex="-1"></a><span class="co">#&gt;             mechanism_class batch_col repeat_id      stat df     pval  cramer_v</span></span>
+<span id="cb37-107"><a href="#cb37-107" tabindex="-1"></a><span class="co">#&gt; batch confounding_alignment     batch         1 17.043088 20 0.650174 0.1631865</span></span>
+<span id="cb37-108"><a href="#cb37-108" tabindex="-1"></a><span class="co">#&gt; study confounding_alignment     study         1  9.487022 12 0.660865 0.1405867</span></span>
+<span id="cb37-109"><a href="#cb37-109" tabindex="-1"></a>ta <span class="ot">&lt;-</span> <span class="fu">audit_target_assoc</span>(audit)</span>
+<span id="cb37-110"><a href="#cb37-110" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.null</span>(ta) <span class="sc">&amp;&amp;</span> <span class="fu">nrow</span>(ta) <span class="sc">&gt;</span> <span class="dv">0</span>) {</span>
+<span id="cb37-111"><a href="#cb37-111" tabindex="-1"></a>  <span class="co"># Top features by target association score</span></span>
+<span id="cb37-112"><a href="#cb37-112" tabindex="-1"></a>  <span class="fu">head</span>(ta)</span>
+<span id="cb37-113"><a href="#cb37-113" tabindex="-1"></a>} <span class="cf">else</span> {</span>
+<span id="cb37-114"><a href="#cb37-114" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">&quot;No target leakage scan results available.</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb37-115"><a href="#cb37-115" tabindex="-1"></a>}</span>
+<span id="cb37-116"><a href="#cb37-116" tabindex="-1"></a><span class="co">#&gt;        mechanism_class feature    type metric     value      score      p_value</span></span>
+<span id="cb37-117"><a href="#cb37-117" tabindex="-1"></a><span class="co">#&gt; 1 proxy_target_leakage      x1 numeric    auc 0.6778149 0.35562988 0.0001205498</span></span>
+<span id="cb37-118"><a href="#cb37-118" tabindex="-1"></a><span class="co">#&gt; 2 proxy_target_leakage      x2 numeric    auc 0.4207676 0.15846472 0.0868346476</span></span>
+<span id="cb37-119"><a href="#cb37-119" tabindex="-1"></a><span class="co">#&gt; 3 proxy_target_leakage      x3 numeric    auc 0.5446727 0.08934544 0.3346967486</span></span>
+<span id="cb37-120"><a href="#cb37-120" tabindex="-1"></a><span class="co">#&gt;     n n_levels  flag p_value_adj flag_fdr</span></span>
+<span id="cb37-121"><a href="#cb37-121" tabindex="-1"></a><span class="co">#&gt; 1 160       NA FALSE          NA    FALSE</span></span>
+<span id="cb37-122"><a href="#cb37-122" tabindex="-1"></a><span class="co">#&gt; 2 160       NA FALSE          NA    FALSE</span></span>
+<span id="cb37-123"><a href="#cb37-123" tabindex="-1"></a><span class="co">#&gt; 3 160       NA FALSE          NA    FALSE</span></span>
+<span id="cb37-124"><a href="#cb37-124" tabindex="-1"></a>du <span class="ot">&lt;-</span> <span class="fu">audit_duplicates</span>(audit)</span>
+<span id="cb37-125"><a href="#cb37-125" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.null</span>(du) <span class="sc">&amp;&amp;</span> <span class="fu">nrow</span>(du) <span class="sc">&gt;</span> <span class="dv">0</span>) {</span>
+<span id="cb37-126"><a href="#cb37-126" tabindex="-1"></a>  <span class="co"># Top duplicate/near-duplicate pairs by similarity</span></span>
+<span id="cb37-127"><a href="#cb37-127" tabindex="-1"></a>  <span class="fu">head</span>(du)</span>
+<span id="cb37-128"><a href="#cb37-128" tabindex="-1"></a>} <span class="cf">else</span> {</span>
+<span id="cb37-129"><a href="#cb37-129" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">&quot;No near-duplicates detected.</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb37-130"><a href="#cb37-130" tabindex="-1"></a>}</span>
+<span id="cb37-131"><a href="#cb37-131" tabindex="-1"></a><span class="co">#&gt;      mechanism_class   i   j       sim cross_fold   cos_sim</span></span>
+<span id="cb37-132"><a href="#cb37-132" tabindex="-1"></a><span class="co">#&gt; 1  duplicate_overlap   1   5 1.0000000       TRUE 1.0000000</span></span>
+<span id="cb37-133"><a href="#cb37-133" tabindex="-1"></a><span class="co">#&gt; 12 duplicate_overlap  35  61 0.9994623       TRUE 0.9994623</span></span>
+<span id="cb37-134"><a href="#cb37-134" tabindex="-1"></a><span class="co">#&gt; 18 duplicate_overlap  80 106 0.9990700       TRUE 0.9990700</span></span>
+<span id="cb37-135"><a href="#cb37-135" tabindex="-1"></a><span class="co">#&gt; 25 duplicate_overlap 120 153 0.9978776       TRUE 0.9978776</span></span>
+<span id="cb37-136"><a href="#cb37-136" tabindex="-1"></a><span class="co">#&gt; 4  duplicate_overlap   7 107 0.9976746       TRUE 0.9976746</span></span>
+<span id="cb37-137"><a href="#cb37-137" tabindex="-1"></a><span class="co">#&gt; 22 duplicate_overlap 104 142 0.9968751       TRUE 0.9968751</span></span></code></pre></div>
 <p>The permutation table reports the observed metric, the mean under
 random label permutation, the gap (difference), and a permutation
 <em>p</em>-value. For metrics where higher values indicate better
