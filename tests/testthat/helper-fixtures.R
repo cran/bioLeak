@@ -140,3 +140,12 @@ expect_warning_match <- function(expr, pattern, all = FALSE) {
   }
   value
 }
+
+
+# TRUE when every package a parsnip engine needs is installed (asked from
+# parsnip, so tests never name engine-only packages such as those behind
+# censored engines, which CRAN machines may lack).
+engine_available <- function(spec) {
+  pkgs <- parsnip::required_pkgs(spec)
+  all(vapply(pkgs, requireNamespace, logical(1), quietly = TRUE))
+}

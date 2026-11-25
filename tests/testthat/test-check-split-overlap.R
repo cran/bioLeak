@@ -100,6 +100,7 @@ test_that("check_split_overlap returns a data.frame with expected columns", {
 })
 
 test_that("LeakAudit info slot carries provenance", {
+  skip_if_not_installed("glmnet")
   set.seed(42)
   df <- data.frame(
     subject = rep(1:30, each = 3),

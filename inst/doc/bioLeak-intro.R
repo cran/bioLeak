@@ -784,7 +784,7 @@ if (!is.null(pg) && nrow(pg) > 0) {
 }
 ba <- audit_batch_assoc(audit)
 if (!is.null(ba) && nrow(ba) > 0) {
-  # Batch/study association with folds (Cramer's V)
+  # Batch-outcome and fold-batch tests, and span_frac per batch column
   ba
 } else {
   cat("No batch or study associations detected.\n")
@@ -803,6 +803,14 @@ if (!is.null(du) && nrow(du) > 0) {
 } else {
   cat("No near-duplicates detected.\n")
 }
+
+## ----audit-perm-null----------------------------------------------------------
+info <- audit_info(audit)
+# Null used, fold handling, permutation scheme and summary statistic
+info[c("perm_null", "perm_folds", "perm_scheme", "perm_summary")]
+info$perm_folds_reason
+# Pooled and per-fold-mean permutation gaps (refit nulls only)
+info$perm_gap_summaries
 
 ## ----mechanism-summary--------------------------------------------------------
 mech <- audit@info$mechanism_summary
@@ -922,25 +930,15 @@ if (requireNamespace("ggplot2", quietly = TRUE)) {
 }
 
 ## ----cv-ci--------------------------------------------------------------------
-# Standard 95% CI from the leakage-safe fit
-ci_std <- cv_ci(fit_safe@metrics, level = 0.95, method = "normal")
-cat("Standard 95% CI:\n")
-print(ci_std)
-
-# Nadeau-Bengio corrected CI
-# For K-fold CV: n_train ≈ (K-1)/K × n, n_test ≈ n/K
-K_folds  <- length(unique(fit_safe@metrics$fold))
-n_total  <- nrow(fit_safe@splits@info$coldata)
-
-ci_nb <- cv_ci(
-  fit_safe@metrics,
-  level   = 0.95,
-  method  = "nadeau_bengio",
-  n_train = round(n_total * (K_folds - 1L) / K_folds),
-  n_test  = round(n_total / K_folds)
-)
+# Corrected 95% CI (default), sizes and folds per repeat taken from the fit
+ci_nb <- cv_ci(fit_safe)
 cat("Nadeau-Bengio corrected 95% CI:\n")
 print(ci_nb)
+
+# Naive CI, for comparison only: too narrow for cross-validation
+ci_naive <- cv_ci(fit_safe@metrics, method = "normal")
+cat("Naive 95% CI (ignores fold correlation):\n")
+print(ci_naive)
 
 ## ----delta-lsi-data-----------------------------------------------------------
 set.seed(100)
@@ -962,7 +960,7 @@ df_dlsi_naive$leak <- ave(
   subj_d, FUN = mean
 )
 
-# Shared splits: 5-fold × 5 repeats → R_eff = 5 (tier C: point + p-value)
+# Shared splits: 5-fold × 5 repeats → R_eff = 5 folds per repeat (tier C)
 splits_dlsi <- make_split_plan(
   df_dlsi_guarded,
   outcome = "outcome",
@@ -1001,10 +999,7 @@ cat("Guarded AUC:", round(mean(fit_dlsi_guarded@metrics$auc, na.rm = TRUE), 3), 
 result_dlsi <- delta_lsi(
   fit_leaky   = fit_dlsi_naive,
   fit_guarded = fit_dlsi_guarded,
-  metric      = "auc",
-  M_boot      = 300L,
-  M_flip      = 300L,
-  seed        = 1L
+  metric      = "auc"
 )
 
 summary(result_dlsi)
@@ -1019,10 +1014,10 @@ cat("inference_ok:  ", result_dlsi@inference_ok, "\n")
 cat("delta_metric:  ", round(result_dlsi@delta_metric, 4), "\n")
 # delta_lsi: Huber M-estimate of {Δ_r} (k=1.345, fixed MAD scale)
 cat("delta_lsi:     ", round(result_dlsi@delta_lsi,    4), "\n")
-# delta_lsi_ci: 95% BCa interval for delta_lsi (NA below tier B)
-cat("95% BCa CI:    [",
+# delta_lsi_ci: corrected-t 95% interval for delta_lsi (NA in tier D)
+cat("95% CI:        [",
     paste(round(result_dlsi@delta_lsi_ci, 4), collapse = ", "), "]\n")
-# p_value: sign-flip randomization p-value (NA below tier C or if unpaired)
+# p_value: corrected repeated-CV t-test p-value (NA in tier D or if unpaired)
 cat("p-value:       ",
     if (is.na(result_dlsi@p_value)) "NA (tier D or unpaired)"
     else format(result_dlsi@p_value, digits = 3), "\n")
@@ -1038,17 +1033,20 @@ splits_rand <- make_split_plan(
   repeats = 5L
 )
 
+# subject is not a split column here (folds are by row), so name it as an
+# identifier; otherwise its dummy columns would become predictors
 fit_naive_rand <- fit_resample(
   df_dlsi_naive,
   outcome = "outcome",
   splits  = splits_rand,
   learner = spec,
   metrics = "auc",
+  id_cols = "subject",
   seed    = 1L
 )
 
 r_unpaired <- suppressWarnings(
-  delta_lsi(fit_naive_rand, fit_dlsi_guarded, metric = "auc", seed = 1L)
+  delta_lsi(fit_naive_rand, fit_dlsi_guarded, metric = "auc")
 )
 
 cat(sprintf("Paired:        %s\n", r_unpaired@info$paired))
@@ -1062,14 +1060,12 @@ cat(sprintf("p_value:       %s\n",
 r_hib_true  <- suppressWarnings(delta_lsi(
   fit_dlsi_naive, fit_dlsi_guarded,
   metric           = "auc",
-  higher_is_better = TRUE,
-  seed             = 1L
+  higher_is_better = TRUE
 ))
 r_hib_false <- suppressWarnings(delta_lsi(
   fit_dlsi_naive, fit_dlsi_guarded,
   metric           = "auc",
-  higher_is_better = FALSE,
-  seed             = 1L
+  higher_is_better = FALSE
 ))
 
 cat(sprintf("hib = TRUE:   delta_metric = %+.4f  (positive = naive inflated)\n",
@@ -1101,7 +1097,7 @@ summary(audit_naive_dlsi)
 # Step 2: confirmed guards reduced inflation; check residual DLSI
 cat("\ndelta_metric (naive vs guarded):", round(result_dlsi@delta_metric, 4), "\n")
 if (!is.na(result_dlsi@p_value)) {
-  cat("Sign-flip p-value:              ", format(result_dlsi@p_value, digits = 3), "\n")
+  cat("Corrected t-test p-value:       ", format(result_dlsi@p_value, digits = 3), "\n")
 }
 
 ## ----parallel-setup, eval=FALSE-----------------------------------------------

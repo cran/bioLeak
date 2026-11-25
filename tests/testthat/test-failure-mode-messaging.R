@@ -1,4 +1,5 @@
 test_that("fold_status contains elapsed_sec column", {
+  skip_if_not_installed("glmnet")
   set.seed(1)
   df <- data.frame(
     subject = rep(1:30, each = 2),
@@ -20,6 +21,7 @@ test_that("fold_status contains elapsed_sec column", {
 })
 
 test_that("successful folds have non-negative elapsed_sec", {
+  skip_if_not_installed("glmnet")
   set.seed(1)
   df <- data.frame(
     subject = rep(1:30, each = 2),
@@ -43,6 +45,7 @@ test_that("successful folds have non-negative elapsed_sec", {
 })
 
 test_that("schema consistency between successful and failed folds", {
+  skip_if_not_installed("glmnet")
   set.seed(1)
   df <- data.frame(
     subject = rep(1:30, each = 2),

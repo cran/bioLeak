@@ -38,8 +38,11 @@ audit_leakage(
   nn_k = 50,
   max_pairs = 5000,
   duplicate_scope = c("train_test", "all"),
+  duplicate_null_reps = 3L,
   learner = NULL,
-  strict_align = FALSE
+  strict_align = FALSE,
+  perm_folds = c("auto", "fixed", "redraw"),
+  perm_summary = c("pooled", "fold_mean")
 )
 }
 \arguments{
@@ -57,11 +60,17 @@ statistic, the permutation null, and the sign of the reported gap.}
 distribution (default 200). Larger values reduce Monte Carlo error but
 increase runtime.}
 
-\item{perm_stratify}{Logical scalar or `"auto"`. If TRUE, permutations
-are stratified within each fold (factor levels; numeric outcomes are binned
-into quantiles when enough non-missing values are available). If FALSE, no
-stratification is used. Defaults to FALSE. Stratification only applies when
-`coldata` supplies the outcome; otherwise labels are shuffled within each fold.}
+\item{perm_stratify}{Logical scalar or `"auto"`. If TRUE, refit-based
+permutations (`perm_refit = TRUE`) are stratified (factor levels; numeric
+outcomes are binned into quantiles when enough non-missing values are
+available). If FALSE, no stratification is used. Defaults to FALSE.
+Stratification only applies when `coldata` supplies the outcome. It has no
+effect on fixed-prediction permutations (`perm_refit = FALSE`), which
+shuffle labels across the whole dataset (see `perm_mode`); a warning is
+raised if it is set there.
+It is also ignored, with a warning, for \code{batch_blocked} and
+\code{study_loocv} refit nulls, which permute within each batch or study:
+stratifying those by the outcome would leave every label in place.}
 
 \item{perm_refit}{Logical scalar or `"auto"`. If FALSE, permutations keep
 predictions fixed and shuffle labels (association test). If TRUE, each
@@ -70,7 +79,9 @@ Refit-based permutations are slower but better approximate a full null
 distribution. The default is `"auto"`, which refits only when
 `perm_refit_spec` is provided and `B` is less than or equal to
 `perm_refit_auto_max`; otherwise it falls back to fixed-prediction
-permutations.}
+permutations. A refit costs `B` x (number of folds) model fits; a
+message reports this number when `"auto"` refits and says when it
+falls back.}
 
 \item{perm_refit_auto_max}{Integer scalar. Maximum `B` allowed for
 `perm_refit = "auto"` to trigger refitting. Defaults to 200.}
@@ -79,21 +90,35 @@ permutations.}
 Required elements: `x` (data used for fitting) and `learner` (parsnip
 model_spec, workflow, or legacy learner). Optional elements: `outcome`
 (defaults to `fit@outcome`), `preprocess`, `learner_args`,
-`custom_learners`, `class_weights`, `positive_class`, and `parallel`.
+`custom_learners`, `class_weights`, `positive_class`, `parallel`, and
+`id_cols` (defaults to the `id_cols` used by [fit_resample()]).
 Survival outcomes are not supported for refit-based permutations.}
 
 \item{perm_mode}{Optional character scalar to override the permutation mode
 used for restricted shuffles. One of `"subject_grouped"`, `"batch_blocked"`,
 `"study_loocv"`, or `"time_series"`. Defaults to the split metadata when
-available (including rsample-derived modes).}
+available (including rsample-derived modes). Restricted shuffles are used
+by refit-based permutations and by the multivariate target scan. The
+fixed-prediction permutation gap shuffles labels across the whole dataset
+at the level of samples (all copies of a sample from repeated CV share one
+label); for `"subject_grouped"` (and `"combined"` with a group axis) whole
+subjects swap label vectors with subjects of the same size, and a subject
+with no same-size partner is shuffled within itself, which keeps the
+class balance exact (a warning says when few subjects can be exchanged);
+for `"time_series"` labels move in time blocks (`time_block`,
+`block_len`). The multivariate scan, which refits on each permutation,
+uses the subject-level scheme for grouped designs and the restricted
+permutation of refit audits otherwise.}
 
 \item{time_block}{Character scalar, `"circular"` or `"stationary"`. Controls
-block permutation for `time_series` splits; ignored for other split modes.
-Default is `"circular"`.}
+block permutation for `time_series` splits; ignored for other split modes
+and by the fixed-prediction permutation gap (a warning is raised if it is
+supplied with `perm_refit = FALSE`). Default is `"circular"`.}
 
 \item{block_len}{Integer scalar or NULL. Block length for time-series
 permutations. NULL selects `max(5, floor(0.1 * fold_size))`. Larger values
-preserve more temporal structure and yield a more conservative null.}
+preserve more temporal structure and yield a more conservative null.
+Like `time_block`, it applies only to restricted (refit) permutations.}
 
 \item{include_z}{Logical scalar. If TRUE (default), include the z-score for the
 permutation gap when a standard error is available; if FALSE, `z` is NA.}
@@ -117,8 +142,9 @@ Default is 1.}
 \item{return_perm}{Logical scalar. If TRUE (default), stores the permutation
 distribution in `audit@perm_values`. Set FALSE to reduce memory use.}
 
-\item{batch_cols}{Character vector. Names of `coldata` columns to test for
-association with fold assignment. If NULL, defaults to any of
+\item{batch_cols}{Character vector. Names of `coldata` batch/study columns
+to test for association with the outcome and with fold assignment (see
+`batch_assoc` in Details). If NULL, defaults to any of
 `"batch"`, `"plate"`, `"center"`, `"site"`, `"study"` found in `coldata`.
 Changing this controls which batch tests appear in `batch_assoc`.}
 
@@ -191,6 +217,11 @@ affect permutation results. Default is 5000.}
 train vs test in at least one repeat; `"all"` reports all near-duplicate
 pairs in `X_ref` regardless of fold assignment.}
 
+\item{duplicate_null_reps}{Integer scalar. Number of null draws used to
+estimate how many pairs would pass the duplicate rule by chance (stored
+in `info$duplicate_null`, see Details). `0` skips the estimate. Default
+is 3.}
+
 \item{learner}{Optional character scalar. When predictions include multiple
 learner IDs, selects the learner to audit. If NULL and multiple learners
 are present, the function errors; if predictions lack learner IDs, this
@@ -201,6 +232,33 @@ argument is ignored with a warning. Default is NULL.}
 names or IDs and would otherwise fall back to row-order matching. Default
 is FALSE for backward compatibility. Set to TRUE in production pipelines to
 catch silent misalignment.}
+
+\item{perm_folds}{Character scalar, `"auto"`, `"fixed"`, or `"redraw"`.
+Controls the folds used by refit-based permutations (`perm_refit = TRUE`);
+ignored for fixed-prediction permutations. `"fixed"` reuses the observed
+folds for every permutation. `"redraw"` re-draws the split plan for each
+permutation by calling [make_split_plan()] on the permuted outcome with
+the observed plan's mode, grouping columns, constraints, `v`, `repeats`,
+and `stratify`, and seed `splits@info$seed + b` for permutation `b`, so
+the null reproduces the design's own fold construction. It requires a
+plan built by [make_split_plan()] whose stored metadata aligns with
+`perm_refit_spec$x`, and errors otherwise. `"auto"` (default) re-draws
+when the observed plan is stratified (`splits@info$stratify = TRUE`) and
+can be re-drawn, and keeps the observed folds otherwise (with a message
+when a stratified plan cannot be re-drawn). See Details.}
+
+\item{perm_summary}{Character scalar, `"pooled"` (default) or
+`"fold_mean"`. How out-of-fold predictions are summarised into the
+observed metric and each permutation value. `"pooled"` computes the metric
+on predictions pooled across folds (the historical behaviour).
+`"fold_mean"` averages the per-fold metric values (unweighted, over all
+folds and repeats; folds where the metric is undefined, such as
+single-class test folds for AUC, are dropped). The fold mean does not
+compare predictions from different fold models, so it is insensitive to
+between-fold baseline shifts. Refit-based audits report both summaries in
+`audit_info(audit)$perm_gap_summaries` whichever is chosen. The fold mean
+requires a refit null: with fixed predictions (`perm_refit = FALSE`) it is
+not calibrated, so `"pooled"` is used with a warning.}
 }
 \value{
 A \code{\linkS4class{LeakAudit}} S4 object containing:
@@ -217,11 +275,11 @@ A \code{\linkS4class{LeakAudit}} S4 object containing:
     \item{\code{perm_values}}{Numeric vector of length \code{B} containing
       the metric value from each permutation. Useful for plotting the null
       distribution. Empty if \code{return_perm = FALSE}.}
-    \item{\code{batch_assoc}}{Data.frame of chi-square association tests
-      between fold assignment and batch/study metadata, with columns:
-      \code{variable}, \code{stat} (chi-square statistic), \code{df}
-      (degrees of freedom), \code{pval}, and \code{cramer_v} (effect size).
-      Small p-values indicate potential confounding by design.}
+    \item{\code{batch_assoc}}{Data.frame, one row per batch/study column
+      and repeat: the fold-batch association test (how batches are spread
+      over folds), the batch-outcome association test, and the share of
+      test rows whose batch also occurs in training (\code{span_frac}).
+      See Details.}
     \item{\code{target_assoc}}{Data.frame of per-feature outcome associations
       with columns: \code{feature}, \code{type} (\code{"numeric"} or
       \code{"categorical"}), \code{metric} (AUC, correlation, eta_sq, or
@@ -237,7 +295,10 @@ A \code{\linkS4class{LeakAudit}} S4 object containing:
       results for reproducibility, including \code{metric}, \code{B},
       \code{seed}, \code{perm_stratify}, \code{perm_refit}, and timing info.}
     \item{\code{info}}{List with additional metadata including multivariate
-      scan results when \code{target_scan_multivariate = TRUE}.}
+      scan results when \code{target_scan_multivariate = TRUE} and the
+      permutation-null descriptors \code{perm_null},
+      \code{perm_folds}, \code{perm_folds_reason}, \code{perm_scheme},
+      \code{perm_summary}, and \code{perm_gap_summaries} (see Details).}
   }
   Use \code{summary()} to print a human-readable report. For
   programmatic access to slot contents, the recommended interface
@@ -285,11 +346,88 @@ accuracy, macro-F1, C-index) and `perm_mean - metric_obs` for RMSE/log-loss.
 By default, `perm_refit = "auto"` refits models when refit data are available
 and `B` is not too large; otherwise it keeps predictions fixed and shuffles
 labels. Fixed-prediction permutations quantify prediction-label association
-rather than a full refit null. Set `perm_refit = FALSE` to force fixed
+rather than a full refit null. They pool the out-of-fold predictions and
+shuffle labels globally (not within folds, which would preserve fold-level
+class balance and inflate the null), so `perm_stratify`, `time_block`, and
+`block_len` do not apply to them. AUC is always oriented so that
+higher predictions indicate the positive class (the second outcome level),
+so anti-correlated predictions give AUC below 0.5 and the permutation null
+centres at 0.5. Set `perm_refit = FALSE` to force fixed
 predictions, or `perm_refit = TRUE` (with `perm_refit_spec`) to always refit.
 
-`batch_assoc` contains chi-square tests between fold assignment and each
-`batch_cols` variable (`stat`, `df`, `pval`, `cramer_v`). `target_assoc`
+\strong{Refit nulls, restricted permutations, and fold construction.}
+Refit-based permutations refit the whole pipeline on permuted outcomes. For
+grouped, blocked, study, and time-series plans the permutation is restricted
+to the design (for `subject_grouped` plans, whole outcome vectors are
+swapped between groups of equal size) when the outcome and the design column
+are available in `perm_refit_spec$coldata` (or in `perm_refit_spec$x` when it
+is a data.frame). Otherwise the refit null is an unrestricted label shuffle
+that ignores the grouping; a `bioLeak_permutation_warning` is raised in that
+case, because breaking the within-group outcome correlation makes the null
+too narrow.
+
+Stratified plans (`make_split_plan(stratify = TRUE)`) balance each fold on
+the observed labels. If the observed folds are reused under permuted
+labels, especially with group-restricted permutations, the permuted class
+balance varies from fold to fold. Each fold model's baseline prediction
+follows its training-set class balance, which is anti-correlated with the
+class balance of its test fold, so AUC computed on predictions pooled
+across folds is biased below 0.5 under the null (Parker, Gunter and Bedo,
+2007). The observed statistic does not suffer this imbalance, so the gap is
+inflated and the p-value is anti-conservative. With `perm_folds = "auto"`
+(the default) a stratified plan is therefore re-drawn on each permuted
+outcome, so that observed and permuted statistics come from the same fold
+construction. `perm_summary = "fold_mean"` additionally removes the
+between-fold baseline component from the statistic itself. In a pure-noise
+simulation (40 families of six plus 24 singletons, stratified five-fold
+grouped CV, logistic regression) the fixed-fold pooled null centred near
+about 0.40 to 0.46, and the re-drawn fold-mean null near 0.5.
+
+`info$perm_null` records the null used: `"global_shuffle"` (fixed
+predictions), `"refit_fixed_folds"`, or `"refit_redrawn_folds"`.
+`info$perm_folds` (`"fixed"` or `"redrawn"`, `NA` for fixed predictions)
+and `info$perm_folds_reason` explain the fold choice; `info$perm_scheme`
+is the label permutation (`"global_shuffle"`, `"group_restricted"`,
+`"within_batch"`, `"within_study"`, `"time_block"`, or `"unrestricted"`);
+`info$perm_summary` is the summary used in `permutation_gap`; and, for
+refit nulls, `info$perm_gap_summaries` is a data.frame with the observed
+value, null mean and SD, gap, and p-value for both the pooled and the
+fold-mean summary.
+
+`batch_assoc` has one row per `batch_cols` variable and repeat, with
+three parts.
+(1) Fold-batch association: a chi-square test of the fold x batch table
+(`stat`, `df`, `pval`, `cramer_v`; `pval_adj` Holm-adjusted across rows)
+and `by_design`, TRUE for columns the split blocks on (e.g. the batch of a
+leave-batch-out plan) or that are nested in such a column. It describes
+how batches are spread over folds; it does not test confounding (a
+blocked design gives `cramer_v = 1` by construction).
+(2) Batch-outcome association, computed once per variable on the
+predicted samples, on the plan's independent units: the recorded group
+column, a constraint axis of type `"subject"` of a combined plan (else its
+primary axis), or the group of an rsample plan. Each unit counts once, with
+its most frequent batch and its majority class or mean outcome, ties
+broken at random (`outcome_method = "units"`); without such a column rows are tested
+(`"rows"`), except time-series plans, whose rows are autocorrelated
+(`"not_tested"`). When batch varies within units, association within units
+(e.g. paired tumour and normal samples in different batches) is not
+tested: its row-level effect size is reported as `within_unit_effect` and
+does not enter the flag.
+`outcome_n` is the number
+of rows or units tested. Columns: `outcome_test` (`"chisq"` for classification, with
+Cramer's V as `outcome_effect`; `"kruskal"` for regression, with
+epsilon^2 = H / (n - 1)), `outcome_stat`, `outcome_df`, `outcome_pval`,
+`outcome_pval_adj` (Holm across variables) and `outcome_effect_min`, the
+small-effect bound (0.1 for V, 0.01 for epsilon^2). Not computed for
+survival outcomes.
+(3) `span_frac`: the share of test rows whose batch level also occurs
+among the training rows of their fold, pooled over the folds of the
+repeat (0 for blocked designs).
+The `confounding_alignment` rule of the mechanism summary flags when some
+variable has `span_frac > 0`, `outcome_pval_adj <= 0.05` and
+`outcome_effect >= outcome_effect_min`, that is, when batch is associated
+with the outcome and shared by training and test rows, the two conditions
+under which batch effects can inflate performance. `target_assoc`
 reports feature-wise outcome associations on `X_ref`; numeric features use
 AUC (binomial), `eta_sq` (multiclass), or correlation (gaussian), while
 categorical features use Cramer's V (binomial/multiclass) or `eta_sq` from a
@@ -304,13 +442,49 @@ by default for supported tasks) adds a model-based proxy check but still only
 covers features present in `X_ref`.
 
 Duplicate detection compares rows of `X_ref` using the chosen `sim_method`
-(cosine on L2-normalized rows, or Pearson via row-centering), optionally after
-rank transformation (`feature_space = "rank"`). By default,
+(cosine on L2-normalized rows, or Pearson via row-centering) after each
+column is centred (constant columns dropped), optionally followed by rank
+transformation (`feature_space = "rank"`). Centring keeps the shared offset
+of positive-valued features from making unrelated samples look
+near-identical. A pair is reported when its similarity reaches
+`sim_threshold`; noisy technical replicates (e.g. re-sequenced low-depth
+libraries) can fall below it, so lower `sim_threshold` to look for them.
+Both rows must also lie at a
+similar distance from the column means (lengths within 10%), since cosine
+ignores length, and be much closer to each other than typical pairs
+(within 10% of the median distance between random rows; with fewer than 5
+features, where close pairs arise by chance, only identical rows are
+reported). Columns are not rescaled, so
+features with larger spread weigh more; with only a few features, cosine
+similarity is a weak duplicate criterion and chance matches are more
+likely. By default,
 `duplicate_scope = "train_test"` filters to pairs that appear in train vs test
 in at least one repeat; set `duplicate_scope = "all"` to include within-fold
 duplicates. The `duplicates` slot returns index pairs and similarity values
 for near-duplicate samples. Only duplicates present in `X_ref` can be
 detected, and checks are skipped if inputs cannot be aligned to splits.
+
+`info$duplicate_null` compares the number of pairs found in scope
+(`observed`, counted before the `max_pairs` cap) with the number expected
+by chance (`expected`) and gives their ratio (`enrichment`; NA when
+`expected` is 0). The expected count applies the same rule to null rows
+in which no sample copies another: `duplicate_null_reps` draws of
+`min(n, 1000)` rows from a Gaussian copula with the features' empirical
+marginal distributions and rank correlation, scaled to the number of
+pairs in scope. Dependence beyond rank correlation (e.g. clusters of
+similar samples such as studies or batches) is not reproduced, so
+clustered data can show enrichment without copied samples.
+
+The mechanism summary (`info$mechanism_summary`) flags each class by a
+fixed rule: `non_random_signal` when the permutation p-value is
+<= 0.05 and the gap is positive; `confounding_alignment` as described for
+`batch_assoc` above; `proxy_target_leakage` when any feature is flagged
+by the target scan, by `flag_fdr` or by the unadjusted `flag` (so the flag
+does not depend on `target_p_adjust`); `duplicate_overlap` when at least one reported pair crosses
+train and test in some repeat (this does not compare the count with
+`info$duplicate_null`); `temporal_lookahead` when such a pair exists in a
+time-series split. The interpretation printed by `summary()` restates
+the permutation result and then lists the flagged classes.
 }
 \examples{
 set.seed(1)
@@ -346,4 +520,9 @@ fit <- fit_resample(df, outcome = "outcome", splits = splits,
 audit <- audit_leakage(fit, metric = "auc", B = 10,
                        X_ref = df[, c("x1", "x2")])
 
+}
+\references{
+Parker, B. J., \enc{Günter}{Gunter}, S. and Bedo, J. (2007). Stratification bias in low
+signal microarray studies. \emph{BMC Bioinformatics}, 8, 326.
+\doi{10.1186/1471-2105-8-326}
 }

@@ -4,7 +4,15 @@
 \alias{as_leaksplits}
 \title{Convert a splitGraph split_spec into bioLeak splits}
 \usage{
-as_leaksplits(spec, data, outcome, sample_id_col = "sample_id", v = 5, ...)
+as_leaksplits(
+  spec,
+  data,
+  outcome,
+  sample_id_col = "sample_id",
+  v = 5,
+  use_block_constraints = FALSE,
+  ...
+)
 }
 \arguments{
 \item{spec}{A \code{split_spec} object from \pkg{splitGraph}.}
@@ -19,6 +27,20 @@ column.}
 (default \code{"sample_id"}).}
 
 \item{v}{Number of CV folds to request from \code{make_split_plan()}.}
+
+\item{use_block_constraints}{\code{FALSE} (default), \code{TRUE}, or a
+character vector of block variable names. \code{spec$block_vars} lists
+the blocking annotations available in the spec (batch_group, study_group,
+...), not axes the split already enforces. For a grouped spec,
+\code{TRUE} enforces all of them and a character vector enforces the
+named ones, as secondary exclusion axes in
+\code{make_split_plan(mode = "combined")}: training rows sharing a level of
+any enforced axis with the test rows are excluded. Enforcing many axes at
+once can leave no training data (an error names the axes) or leave some
+rows never tested (a warning reports how many). Names are checked against
+the spec's usable block_vars for every spec. For
+non-grouped specs (ordered, batch, study) the option does not apply and a
+warning is issued.}
 
 \item{...}{Additional arguments forwarded to \code{\link{make_split_plan}}
 (e.g. \code{stratify}, \code{seed}, \code{horizon}, \code{purge}).}
@@ -40,12 +62,31 @@ The mapping from \code{spec$constraint_mode} to
   \item \code{"batch"}     -> \code{"batch_blocked"}
   \item \code{"study"}     -> \code{"study_loocv"}
   \item \code{"time"}      -> \code{"time_series"}
-  \item \code{"composite"} -> \code{"combined"}
+  \item \code{"site"}, \code{"region"}, \code{"platform"},
+    \code{"assay"}, \code{"relatedness"}, \code{"spatial"},
+    \code{"composite"} -> \code{"subject_grouped"} with
+    \code{group = spec$group_var} (\code{"group_id"})
 }
 
+For the grouping modes in the last row, splitGraph has already resolved
+the dependency structure into one group id per sample (for
+\code{"composite"}, the merged components of all relations in \code{via}),
+so keeping each group intact within a fold honours the constraint.
+Specs that require ordering (\code{spec$ordering_required = TRUE}) and
+supply a valid ordering column (\code{"order_rank"} or \code{spec$time_var})
+map to \code{"time_series"} while also passing \code{group = spec$group_var}
+(for non-\code{"time"} modes) so both temporal ordering and group
+disjointness are enforced. Unrecognised future modes fall back to
+grouped folds on \code{group_var} with a warning.
+
 Blocking variables declared on the spec (\code{batch_group},
-\code{study_group}) and ordering (\code{order_rank}) are forwarded
-automatically when relevant.
+\code{study_group}, \code{site_group}, \code{region_group},
+\code{platform_group}, \code{assay_group}), stratification (\code{stratum}
+or \code{spec$stratum_var}), and ordering (\code{order_rank}) are forwarded
+automatically when relevant; stratification is not requested for ordered
+specs, whose time-series folds are contiguous time blocks. When \code{use_block_constraints = TRUE},
+non-missing \code{spec$block_vars} on a grouped spec are enforced as
+secondary exclusion axes via \code{make_split_plan(mode = "combined")}.
 }
 \seealso{
 \code{\link{make_split_plan}}, \code{\link{as_rsample}}

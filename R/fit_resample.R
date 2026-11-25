@@ -12,6 +12,14 @@
 #'   object and its attributes are missing. `"auto"` falls back to common
 #'   metadata column names (e.g., `group`, `subject`, `batch`, `study`, `time`).
 #'   Supported names are `group`, `batch`, `study`, and `time`.
+#' @param id_cols Optional character vector of identifier or metadata columns
+#'   (for example a \code{sample_id}) to exclude from the predictors. The
+#'   outcome and the split's group/batch/study/time columns are always
+#'   excluded; every other column of \code{x} is used as a predictor, and
+#'   character/factor columns are one-hot encoded. With the built-in guarded
+#'   preprocessing, a warning is raised when a character or factor column not
+#'   listed here has nearly one unique value per row (at least 90\% unique),
+#'   because such columns are almost always identifiers.
 #' @param store_refit_data Logical; when TRUE (default), stores the original
 #'   data and learner configuration inside the fit to enable refit-based
 #'   permutation tests without manual `perm_refit_spec` setup.
@@ -31,9 +39,11 @@
 #'   must contain \code{fit} and \code{predict} functions. The \code{fit} function
 #'   should accept \code{x}, \code{y}, \code{task}, and \code{weights}, and return
 #'   a model object. The \code{predict} function should accept \code{object},
-#'   \code{newdata}, and \code{task}. For binomial/regression/survival tasks it
-#'   should return a numeric vector; for multiclass tasks it should return either
-#'   class labels or a matrix/data.frame of class probabilities.
+#'   \code{newdata}, and \code{task}. For binomial/regression tasks it should
+#'   return a numeric vector; for survival tasks a numeric \strong{risk score}
+#'   (higher = higher hazard, shorter survival, e.g. a Cox linear predictor),
+#'   which is what the C-index assumes; for multiclass tasks it should return
+#'   either class labels or a matrix/data.frame of class probabilities.
 #' @param metrics named list of metric functions, vector of metric names, or a
 #'   `yardstick::metric_set`. When a yardstick metric set (or list of yardstick
 #'   metric functions) is supplied, metrics are computed using yardstick with the
@@ -57,7 +67,15 @@
 #'       requested metric.}
 #'     \item{\code{metric_summary}}{Data.frame summarizing metrics across folds
 #'       for each learner with columns \code{learner}, and \code{<metric>_mean}
-#'       and \code{<metric>_sd} for each requested metric.}
+#'       and \code{<metric>_sd} for each requested metric, plus
+#'       \code{<metric>_ci_lo}/\code{<metric>_ci_hi} when \code{\link{cv_ci}}
+#'       succeeds. \code{_mean} and \code{_sd} are plain summaries over all
+#'       fold rows; the interval counts each distinct test set once (folds that
+#'       repeat a test set are averaged first) and uses the Nadeau-Bengio
+#'       corrected variance, so it is not \code{_mean} plus or minus a multiple
+#'       of \code{_sd}. Its centre is the mean over distinct test sets, which
+#'       differs from \code{_mean} when test sets repeat unequally often or
+#'       some repeats have NA metrics.}
 #'     \item{\code{audit}}{Data.frame with per-fold audit information including
 #'       \code{fold}, \code{n_train}, \code{n_test}, \code{learner}, and
 #'       \code{features_final} (number of features after preprocessing).}
@@ -102,7 +120,15 @@
 #' When a `recipes::recipe` or `workflows::workflow` is supplied, the recipe is
 #' prepped on the training fold and baked on the test fold.
 #' For data.frame or matrix inputs, columns used to define splits
-#' (outcome, group, batch, study, time) are excluded from the predictor matrix.
+#' (outcome, group, batch, study, time, \code{stratify_by}, a sample-id
+#' column from \code{as_leaksplits()}, and \code{id_cols}) are excluded from
+#' the predictor matrix. With a recipe, those columns keep a non-predictor
+#' role (\code{"bioLeak_split"}) so steps may still name them, but neither they
+#' nor columns derived from them (e.g. by \code{step_dummy()}) are passed to
+#' the learner. A step that selects them by type rather than role (e.g.
+#' \code{step_dummy(all_nominal(), -all_outcomes())}) is detected after
+#' \code{prep()} and stops the fold with an error naming the derived columns;
+#' use the \code{*_predictors()} selectors or \code{step_rm()} them.
 #' Use \code{learner_args} to pass model-specific arguments, either as a named
 #' list keyed by learner or a single list applied to all learners. For custom
 #' learners, \code{learner_args[[name]]} may be a list with \code{fit} and
@@ -124,10 +150,12 @@
 #' splits <- make_split_plan(df, outcome = "outcome",
 #'                       mode = "subject_grouped", group = "subject", v = 5)
 #'
-#' # glmnet learner (requires glmnet package)
-#' fit <- fit_resample(df, outcome = "outcome", splits = splits,
+#' # glmnet learner (requires the suggested glmnet package)
+#' if (requireNamespace("glmnet", quietly = TRUE)) {
+#'   fit <- fit_resample(df, outcome = "outcome", splits = splits,
 #'                       learner = "glmnet", metrics = "auc")
-#' summary(fit)
+#'   summary(fit)
+#' }
 #'
 #' # Custom learner (logistic regression) - no extra packages needed
 #' custom <- list(
@@ -165,7 +193,8 @@ fit_resample <- function(x, outcome, splits,
                          refit = TRUE,
                          seed = 1,
                          split_cols = "auto",
-                         store_refit_data = TRUE) {
+                         store_refit_data = TRUE,
+                         id_cols = NULL) {
 
   set.seed(seed)
   .bio_strict_checks(context = "fit_resample", seed = seed)
@@ -342,11 +371,40 @@ fit_resample <- function(x, outcome, splits,
   drop_cols <- outcome
   if (inherits(splits, "LeakSplits")) {
     split_info <- splits@info
+    cst_cols <- vapply(split_info$constraints %||% list(),
+                       function(ax) ax$col %||% "", character(1))
+    strat_drop <- if (!is.null(split_info$stratify_by) &&
+                      !identical(split_info$stratify_by, outcome)) {
+      split_info$stratify_by
+    } else NULL
+    kb_cfg <- if (is.list(preprocess)) preprocess[["batch_adjust"]] else NULL
+    if (isTRUE(kb_cfg[["keep_batch_col"]]) && !is.null(kb_cfg[["batch_col"]]) &&
+        kb_cfg[["batch_col"]] %in% c(split_info$group, split_info$batch, split_info$study)) {
+      warning(sprintf(paste0(
+        "batch_adjust$keep_batch_col = TRUE has no effect: \"%s\" is a split column and split ",
+        "columns are always removed from the predictors."), kb_cfg[["batch_col"]]), call. = FALSE)
+    }
     drop_cols <- unique(c(drop_cols,
                           split_info$group,
                           split_info$batch,
                           split_info$study,
-                          split_info$time))
+                          split_info$time,
+                          split_info$sample_id_col,
+                          strat_drop,
+                          cst_cols))
+  }
+  if (!is.null(id_cols)) {
+    if (!is.character(id_cols) || anyNA(id_cols)) {
+      .bio_stop("id_cols must be a character vector of column names.",
+                "bioLeak_input_error")
+    }
+    missing_id <- setdiff(id_cols, colnames(Xall))
+    if (length(missing_id)) {
+      .bio_stop(sprintf("id_cols not found in x: %s",
+                        paste(missing_id, collapse = ", ")),
+                "bioLeak_input_error")
+    }
+    drop_cols <- unique(c(drop_cols, id_cols))
   }
   drop_cols <- drop_cols[!is.na(drop_cols) & nzchar(drop_cols)]
   if (length(drop_cols) && !is.null(colnames(Xall))) {
@@ -354,6 +412,29 @@ fit_resample <- function(x, outcome, splits,
   }
   if (length(drop_cols)) {
     Xall <- Xall[, setdiff(colnames(Xall), drop_cols), drop = FALSE]
+  }
+  # A recipe sees the raw columns; keep split/metadata columns (and anything a
+  # step derives from them) out of its predictors.
+  if (identical(preprocess_mode, "recipe")) {
+    preprocess <- .bio_recipe_exclude_cols(preprocess, setdiff(drop_cols, outcome))
+  }
+  # Recipes/workflows assign roles (e.g. "id") themselves, so only the guarded
+  # pipeline, which one-hot encodes every non-numeric column, is checked.
+  if (identical(preprocess_mode, "guard") && is.data.frame(Xall) && nrow(Xall) >= 10L) {
+    id_like <- names(Xall)[vapply(Xall, function(col) {
+      if (!is.character(col) && !is.factor(col)) return(FALSE)
+      n_ok <- sum(!is.na(col))
+      n_ok >= 10L && length(unique(col[!is.na(col)])) >= 0.9 * n_ok
+    }, logical(1))]
+    if (length(id_like)) {
+      .bio_warn(sprintf(paste0(
+        "fit_resample(): column(s) %s look like identifiers (character/factor ",
+        "with nearly one unique value per row) and will be one-hot encoded as ",
+        "predictors. Pass id_cols = c(%s) to exclude them."),
+        paste(sprintf("'%s'", id_like), collapse = ", "),
+        paste(sprintf("\"%s\"", id_like), collapse = ", ")),
+        class = "bioLeak_input_warning")
+    }
   }
   sample_ids <- NULL
   if (inherits(splits, "LeakSplits") && !is.null(splits@info$coldata)) {
@@ -387,12 +468,17 @@ fit_resample <- function(x, outcome, splits,
   split_embargo <- splits@info$embargo %||% 0
   split_coldata <- splits@info$coldata
   time_vec <- NULL
+  ts_group_vec <- NULL
   if (compact && identical(split_mode, "time_series")) {
     if (is.null(split_coldata) || is.null(split_time) || !split_time %in% names(split_coldata)) {
       stop("time_series compact splits require time column in coldata.")
     }
     time_vec <- split_coldata[[split_time]]
+    if (!is.null(splits@info$group) && splits@info$group %in% names(split_coldata)) {
+      ts_group_vec <- split_coldata[[splits@info$group]]
+    }
   }
+  outcome_levels_orig <- NULL
   task <- if (.bio_is_survival(yall)) "survival"
   else if (.bio_is_binomial(yall)) "binomial"
   else if (.bio_is_multiclass(yall)) "multiclass"
@@ -413,6 +499,9 @@ fit_resample <- function(x, outcome, splits,
       .bio_stop("Binomial task requires exactly two outcome levels after preprocessing.",
                 "bioLeak_input_error")
     }
+    # level order as given; recipes and workflows captured it when they were
+    # defined, so data handed to them keep it (see make_fold_df())
+    outcome_levels_orig <- levels(yall)
     if (!is.null(positive_class)) {
       pos_chr <- as.character(positive_class)
       if (length(pos_chr) != 1L) {
@@ -580,6 +669,23 @@ fit_resample <- function(x, outcome, splits,
 
   learner_objs <- if (use_parsnip || use_workflow) learner_specs else as.list(learner_names)
 
+  # A workflow whose recipe lists split/metadata columns (e.g. `y ~ .` on the
+  # full data) gets them with a non-predictor role and is fitted on the raw
+  # columns; other workflows see the data without those columns.
+  wf_raw <- rep(FALSE, length(learner_objs))
+  if (identical(preprocess_mode, "workflow")) {
+    meta_cols <- setdiff(drop_cols, outcome)
+    for (i in seq_along(learner_objs)) {
+      pre <- tryCatch(workflows::extract_preprocessor(learner_objs[[i]]), error = function(e) NULL)
+      if (!.bio_is_recipe(pre) || !any(pre$var_info$variable %in% meta_cols)) next
+      pre2 <- .bio_recipe_exclude_cols(pre, meta_cols)
+      vi <- pre2$var_info
+      if (any(vi$role[vi$variable %in% meta_cols] %in% "predictor")) next  # trained recipe
+      learner_objs[[i]] <- workflows::update_recipe(learner_objs[[i]], pre2)
+      wf_raw[i] <- TRUE
+    }
+  }
+
   # helper: safe metric computation -------------------------------------------
   compute_metric <- function(name, y, pred) {
     if (is.function(name)) return(name(y, pred))
@@ -588,12 +694,7 @@ fit_resample <- function(x, outcome, splits,
       yb <- if (is.factor(y)) as.numeric(y) - 1 else as.numeric(y)
     }
     if (name == "auc" && task == "binomial") {
-      if (requireNamespace("pROC", quietly = TRUE))
-        return(as.numeric(pROC::auc(pROC::roc(y, pred, quiet = TRUE))))
-      pos <- pred[yb == 1]
-      neg <- pred[yb == 0]
-      comp <- outer(pos, neg, function(a, b) (a > b) + 0.5 * (a == b))
-      return(mean(comp))
+      return(.auc_binary(y, pred))
     }
     if (name == "pr_auc" && task == "binomial") {
       if (requireNamespace("PRROC", quietly = TRUE)) {
@@ -631,10 +732,10 @@ fit_resample <- function(x, outcome, splits,
         df <- cbind(df, prob)
       }
       pred_cols <- grep("^\\.pred_", names(df), value = TRUE)
-      args <- list(df, truth = quote(truth), estimate = quote(pred_class))
-      for (col in pred_cols) {
-        args[[col]] <- as.name(col)
-      }
+      # probability columns go in unnamed: yardstick's class-probability
+      # metrics fail ("Failed to compute roc_auc()") when they are named
+      args <- c(list(df, truth = quote(truth), estimate = quote(pred_class)),
+                unname(lapply(pred_cols, as.name)))
       res <- try(do.call(yardstick_set, args), silent = TRUE)
     } else if (task == "binomial") {
       df <- data.frame(truth = y, .pred = as.numeric(pred), stringsAsFactors = FALSE)
@@ -663,8 +764,12 @@ fit_resample <- function(x, outcome, splits,
       colnames(prob_mat) <- class_levels
       return(prob_mat)
     }
+    exact_cols <- vapply(class_levels, function(l) .bio_prob_col(colnames(prob_mat), l) %||% NA_character_,
+                         character(1))
     exp_cols <- paste0(".pred_", make.names(class_levels))
-    if (all(exp_cols %in% colnames(prob_mat))) {
+    if (!anyNA(exact_cols) && !anyDuplicated(exact_cols)) {
+      prob_mat <- prob_mat[, exact_cols, drop = FALSE]
+    } else if (all(exp_cols %in% colnames(prob_mat))) {
       prob_mat <- prob_mat[, exp_cols, drop = FALSE]
     } else if (all(class_levels %in% colnames(prob_mat))) {
       prob_mat <- prob_mat[, class_levels, drop = FALSE]
@@ -797,14 +902,11 @@ fit_resample <- function(x, outcome, splits,
                        learner_label, err_msg))
         }
         prob_df <- as.data.frame(prob)
-        pos_col <- paste0(".pred_", make.names(class_levels[2]))
-        if (!pos_col %in% names(prob_df)) {
-          if (ncol(prob_df) >= 2L) {
-            pos_col <- names(prob_df)[2]
-          } else {
-            stop(sprintf("Parsnip learner '%s' did not return class probabilities.",
-                         learner_label))
-          }
+        pos_col <- .bio_prob_col(names(prob_df), class_levels[2])
+        if (is.null(pos_col)) {
+          stop(sprintf(paste0("Parsnip learner '%s' returned no probability column for the ",
+                              "positive class '%s' (columns: %s)."),
+                       learner_label, class_levels[2], paste(names(prob_df), collapse = ", ")))
         }
         pred <- as.numeric(prob_df[[pos_col]])
         pred_class <- factor(ifelse(pred >= classification_threshold, class_levels[2], class_levels[1]),
@@ -830,16 +932,8 @@ fit_resample <- function(x, outcome, splits,
         return(list(pred = pred_class, pred_class = pred_class, prob = prob_mat, fit = fit))
       }
       if (task == "survival") {
-        pred_df <- try(stats::predict(fit, new_data = Xteg, type = "numeric"), silent = TRUE)
-        if (inherits(pred_df, "try-error")) {
-          pred_df <- try(stats::predict(fit, new_data = Xteg, type = "risk"), silent = TRUE)
-        }
-        if (inherits(pred_df, "try-error")) {
-          err_msg <- attr(pred_df, "condition")$message
-          stop(sprintf("Parsnip learner '%s' failed to predict: %s",
-                       learner_label, err_msg))
-        }
-        pred <- as.numeric(as.data.frame(pred_df)[[1]])
+        pred <- .bio_surv_risk_pred(fit, new_test = Xteg, new_train = Xtrg, ytr = ytr,
+                                    what = sprintf("Parsnip learner '%s'", learner_label))
         return(list(pred = pred, fit = fit))
       } else {
         pred_df <- stats::predict(fit, new_data = Xteg, type = "numeric")
@@ -963,7 +1057,7 @@ fit_resample <- function(x, outcome, splits,
     stop("Unsupported learner.")
   }
 
-  train_one_workflow <- function(learner_obj, learner_label, dftr, dfte, weights = NULL) {
+  train_one_workflow <- function(learner_obj, learner_label, dftr, dfte, weights = NULL, ytr = NULL) {
     if (!requireNamespace("workflows", quietly = TRUE)) {
       stop("Package 'workflows' is required when learner is a workflow.")
     }
@@ -979,14 +1073,11 @@ fit_resample <- function(x, outcome, splits,
         stop(sprintf("Workflow learner '%s' failed to predict: %s", learner_label, err_msg))
       }
       prob_df <- as.data.frame(prob)
-      pos_col <- paste0(".pred_", make.names(class_levels[2]))
-      if (!pos_col %in% names(prob_df)) {
-        if (ncol(prob_df) >= 2L) {
-          pos_col <- names(prob_df)[2]
-        } else {
-          stop(sprintf("Workflow learner '%s' did not return class probabilities.",
-                       learner_label))
-        }
+      pos_col <- .bio_prob_col(names(prob_df), class_levels[2])
+      if (is.null(pos_col)) {
+        stop(sprintf(paste0("Workflow learner '%s' returned no probability column for the ",
+                            "positive class '%s' (columns: %s)."),
+                     learner_label, class_levels[2], paste(names(prob_df), collapse = ", ")))
       }
       pred <- as.numeric(prob_df[[pos_col]])
       pred_class <- factor(ifelse(pred >= classification_threshold, class_levels[2], class_levels[1]),
@@ -1011,15 +1102,8 @@ fit_resample <- function(x, outcome, splits,
       return(list(pred = pred_class, pred_class = pred_class, prob = prob_mat, fit = fit))
     }
     if (task == "survival") {
-      pred_df <- try(stats::predict(fit, new_data = dfte, type = "numeric"), silent = TRUE)
-      if (inherits(pred_df, "try-error")) {
-        pred_df <- try(stats::predict(fit, new_data = dfte, type = "risk"), silent = TRUE)
-      }
-      if (inherits(pred_df, "try-error")) {
-        err_msg <- attr(pred_df, "condition")$message
-        stop(sprintf("Workflow learner '%s' failed to predict: %s", learner_label, err_msg))
-      }
-      pred <- as.numeric(as.data.frame(pred_df)[[1]])
+      pred <- .bio_surv_risk_pred(fit, new_test = dfte, new_train = dftr, ytr = ytr,
+                                  what = sprintf("Workflow learner '%s'", learner_label))
       return(list(pred = pred, fit = fit))
     } else {
       pred_df <- stats::predict(fit, new_data = dfte, type = "numeric")
@@ -1051,10 +1135,11 @@ fit_resample <- function(x, outcome, splits,
       train <- .bio_time_series_train_indices(
         time_vec = time_vec,
         test_idx = test,
-        candidate_idx = seq_len(nrow(Xall)),
+        candidate_idx = order(time_vec),   # time order, as the explicit builder stores train
         horizon = split_horizon,
         purge = split_purge,
-        embargo = split_embargo
+        embargo = split_embargo,
+        group_vec = ts_group_vec
       )
     } else if (identical(split_mode, "combined")) {
       # Combined mode: exclude samples sharing constraint-axis levels with test
@@ -1091,12 +1176,22 @@ fit_resample <- function(x, outcome, splits,
       df <- df[, c(outcome, setdiff(names(df), outcome)), drop = FALSE]
       return(df)
     }
+    # positive_class reorders the levels internally; a recipe or workflow
+    # checks the outcome against the level order it was defined with
+    # ("wrong attributes"), so restore it. Probabilities are taken by column
+    # name (.pred_<positive class>), so the order does not matter there.
+    if (is.factor(y) && !is.null(outcome_levels_orig) &&
+        setequal(levels(y), outcome_levels_orig)) {
+      y <- factor(as.character(y), levels = outcome_levels_orig)
+    }
     df[[outcome]] <- y
     df[, c(outcome, setdiff(names(df), outcome)), drop = FALSE]
   }
 
   # fold-level function -------------------------------------------------------
   do_fold <- function(fold) {
+    fold_batch <- list(unseen = 0L, missing_test = 0L, missing_train = 0L,
+                       confounded = character())
     fold_full <- resolve_fold_indices(fold)
     fold_id <- fold_full$fold_seq %||% fold_full$fold
     set.seed(seed + fold_id)
@@ -1155,14 +1250,61 @@ fit_resample <- function(x, outcome, splits,
     dfte <- NULL
 
     if (identical(preprocess_mode, "guard")) {
-      guard <- guard_fit(
-        X = Xtr,
-        y = ytr,
-        steps = if (exists("preprocess") && is.list(preprocess)) preprocess else list(),
-        task  = task
+      steps_fold <- if (exists("preprocess") && is.list(preprocess)) preprocess else list()
+      b_tr_vec <- NULL
+      b_te_vec <- NULL
+      b_cfg <- steps_fold[["batch_adjust"]]
+      if (!is.null(b_cfg) && !identical(b_cfg[["method"]] %||% "none", "none")) {
+        b_col <- b_cfg[["batch_col"]] %||% (if (inherits(splits, "LeakSplits")) splits@info$batch else NULL)
+        if (!is.null(b_cfg[["batch"]]) && length(b_cfg[["batch"]]) == nrow(Xall_raw)) {
+          b_tr_vec <- b_cfg[["batch"]][tr]
+          b_te_vec <- b_cfg[["batch"]][te]
+        } else if (!is.null(b_col)) {
+          if (!is.null(colnames(Xtr)) && b_col %in% colnames(Xtr)) {
+            b_tr_vec <- Xtr[, b_col]
+            b_te_vec <- Xte[, b_col]
+          } else if (!is.null(colnames(Xall_raw)) && b_col %in% colnames(Xall_raw)) {
+            b_tr_vec <- Xall_raw[tr, b_col]
+            b_te_vec <- Xall_raw[te, b_col]
+          } else if (!is.null(split_coldata) && b_col %in% names(split_coldata)) {
+            b_tr_vec <- split_coldata[[b_col]][tr]
+            b_te_vec <- split_coldata[[b_col]][te]
+          }
+        }
+        if (!is.null(b_tr_vec)) {
+          steps_fold$batch_adjust$batch <- b_tr_vec
+        }
+      }
+      # Batch-adjustment diagnostics repeat in every fold (held-out batches are
+      # unseen under batch-blocked CV, confounding recurs); record them per fold
+      # and report each once after all folds (works in parallel too).
+      guard <- withCallingHandlers(
+        guard_fit(X = Xtr, y = ytr, steps = steps_fold, task = task),
+        bioLeak_missing_batch_warning = function(w) {
+          fold_batch$missing_train <<- max(fold_batch$missing_train, w$n_rows %||% 0L)
+          invokeRestart("muffleWarning")
+        },
+        bioLeak_batch_confounded_warning = function(w) {
+          fold_batch$confounded <<- c(fold_batch$confounded, conditionMessage(w))
+          invokeRestart("muffleWarning")
+        },
+        bioLeak_batch_single_warning = function(w) {
+          fold_batch$confounded <<- c(fold_batch$confounded, conditionMessage(w))
+          invokeRestart("muffleWarning")
+        }
       )
-      Xtrg <- guard$transform(Xtr)
-      Xteg <- guard$transform(Xte)
+      Xtrg <- withCallingHandlers(
+        guard$transform(Xtr, batch = b_tr_vec),
+        bioLeak_unseen_batch_warning = function(w) invokeRestart("muffleWarning")  # reported by guard_fit
+      )
+      Xteg <- withCallingHandlers(
+        guard$transform(Xte, batch = b_te_vec),
+        bioLeak_unseen_batch_warning = function(w) {
+          fold_batch$unseen       <<- fold_batch$unseen + (w$n_unseen %||% 0L)
+          fold_batch$missing_test <<- fold_batch$missing_test + (w$n_missing %||% 0L)
+          invokeRestart("muffleWarning")
+        }
+      )
       preprocess_state <- guard$state
       colnames(Xtrg) <- make.names(colnames(Xtrg))
       colnames(Xteg) <- make.names(colnames(Xteg))
@@ -1170,6 +1312,10 @@ fit_resample <- function(x, outcome, splits,
       dftr <- make_fold_df(Xtr_raw, ytr)
       dfte <- make_fold_df(Xte_raw, yte)
       recipe_prep <- recipes::prep(preprocess, training = dftr, retain = TRUE)
+      meta_derived <- .bio_recipe_meta_derived(recipe_prep, dftr, setdiff(drop_cols, outcome))
+      if (length(meta_derived)) {
+        .bio_stop_meta_derived(meta_derived, setdiff(drop_cols, outcome))
+      }
       Xtrg <- as.data.frame(recipes::juice(recipe_prep, recipes::all_predictors()),
                             check.names = FALSE)
       Xteg <- as.data.frame(recipes::bake(recipe_prep, new_data = dfte,
@@ -1196,21 +1342,40 @@ fit_resample <- function(x, outcome, splits,
     } else {
       dftr <- make_fold_df(Xtr, ytr)
       dfte <- make_fold_df(Xte, yte)
+      if (any(wf_raw)) {
+        dftr_raw <- make_fold_df(Xtr_raw, ytr)
+        dfte_raw <- make_fold_df(Xte_raw, yte)
+      }
       preprocess_state <- list(type = "workflow")
     }
 
     results <- list()
+    surv_undecided <- list()
     for (i in seq_along(learner_names)) {
       ln <- learner_names[[i]]
       learner_obj <- learner_objs[[i]]
       # Train one learner; ensure consistent level matching
       if (identical(preprocess_mode, "workflow")) {
-        dfte_pred <- dfte[, setdiff(names(dfte), outcome), drop = FALSE]
-        model <- train_one_workflow(learner_obj, ln, dftr, dfte_pred, weights = fold_weights)
-        feat_names <- setdiff(names(dftr), outcome)
+        dftr_i <- if (wf_raw[i]) dftr_raw else dftr
+        dfte_i <- if (wf_raw[i]) dfte_raw else dfte
+        dfte_pred <- dfte_i[, setdiff(names(dfte_i), outcome), drop = FALSE]
+        model <- train_one_workflow(learner_obj, ln, dftr_i, dfte_pred, weights = fold_weights, ytr = ytr)
+        if (wf_raw[i]) {
+          meta_derived <- .bio_recipe_meta_derived(workflows::extract_recipe(model$fit), dftr_i,
+                                                   setdiff(drop_cols, outcome))
+          if (length(meta_derived)) {
+            .bio_stop_meta_derived(meta_derived, setdiff(drop_cols, outcome),
+                                   sprintf("Workflow '%s'", ln))
+          }
+        }
+        feat_names <- setdiff(names(dftr_i), c(outcome, drop_cols))
       } else {
         model <- train_one_learner(learner_obj, ln, Xtrg, ytr, Xteg, yte, weights = fold_weights)
         feat_names <- colnames(Xtrg)
+      }
+      if (!is.null(attr(model$pred, "surv_undecided"))) {
+        surv_undecided[[ln]] <- attr(model$pred, "surv_undecided")
+        attr(model$pred, "surv_undecided") <- NULL
       }
 
       pred_class <- if (task == "binomial") {
@@ -1301,6 +1466,8 @@ fit_resample <- function(x, outcome, splits,
       )
     }
 
+    attr(results, "batch_diag") <- fold_batch
+    attr(results, "surv_undecided") <- surv_undecided
     results
   }
 
@@ -1351,6 +1518,73 @@ fit_resample <- function(x, outcome, splits,
   }
 
   close(pb)
+
+  # one summary warning per batch-adjustment diagnostic -------------------------
+  bdiag <- lapply(out, function(r) attr(r, "batch_diag"))
+  nfold_run <- length(out)
+  n_with <- function(field) sum(vapply(bdiag, function(d) !is.null(d) && length(d[[field]]) &&
+                                         any(d[[field]] > 0L), logical(1)))
+  tot <- function(field) sum(vapply(bdiag, function(d) as.integer(sum(d[[field]] %||% 0L)), integer(1)))
+  if (n_with("unseen") > 0L) {
+    .bio_warn(sprintf(paste0(
+      "batch_adjust: in %d of %d folds, test rows (%d in total) came from batches unseen in ",
+      "training and were left unadjusted. This is expected when the split holds out whole ",
+      "batches or studies; batch effects can only be removed for batches seen in training. ",
+      "Set batch_adjust$unseen = \"grand_mean\" to silence this."),
+      n_with("unseen"), nfold_run, tot("unseen")), "bioLeak_unseen_batch_warning")
+  }
+  if (n_with("missing_train") > 0L || n_with("missing_test") > 0L) {
+    .bio_warn(sprintf(paste0(
+      "batch_adjust: rows with a missing batch label were left unadjusted (training data of %d ",
+      "fold(s), up to %d rows per fold; %d test-row instances in total)."),
+      n_with("missing_train"),
+      max(vapply(bdiag, function(d) as.integer(d$missing_train %||% 0L), integer(1))),
+      tot("missing_test")), "bioLeak_missing_batch_warning")
+  }
+  # Batch/outcome diagnostics, classified by kind (messages differ in p-values).
+  kinds <- list(
+    none        = list(pat = "no batch adjustment is applied",
+                       txt = "no batch adjustment was applied (batch fully confounded with the outcome, or a single training batch)"),
+    within      = list(pat = "single outcome class",
+                       txt = "every batch held a single outcome class; only differences between batches of the same class were removed"),
+    partial     = list(pat = "cannot be separated from batch:",
+                       txt = "part of the outcome could not be separated from batch and was not protected"),
+    assoc_prot  = list(pat = "With protect = TRUE",
+                       txt = "batch was associated with the outcome; protect = TRUE keeps the signal but can bias performance upward"),
+    assoc_unpr  = list(pat = "removed as batch effect and performance",
+                       txt = "batch was associated with the outcome; part of the outcome signal was removed, so performance is underestimated"),
+    fallback    = list(pat = "estimated without protecting the outcome",
+                       txt = "protect = TRUE could not be used (missing or unsuitable outcome); batch effects were estimated unprotected")
+  )
+  fold_msgs <- lapply(bdiag, function(d) d$confounded %||% character())
+  lines <- character()
+  for (k in names(kinds)) {
+    hit <- vapply(fold_msgs, function(m) any(grepl(kinds[[k]]$pat, m, fixed = TRUE)), logical(1))
+    if (!any(hit)) next
+    extra <- ""
+    if (k %in% c("assoc_prot", "assoc_unpr")) {
+      pv <- suppressWarnings(as.numeric(unlist(regmatches(
+        unlist(fold_msgs[hit]), regexpr("(?<=p = )[0-9.eE+-]+", unlist(fold_msgs[hit]), perl = TRUE)))))
+      pv <- pv[is.finite(pv)]
+      if (length(pv)) extra <- sprintf(" (p = %.2g to %.2g)", min(pv), max(pv))
+    }
+    lines <- c(lines, sprintf("in %d of %d folds, %s%s", sum(hit), nfold_run, kinds[[k]]$txt, extra))
+  }
+  if (length(lines)) {
+    .bio_warn(paste0("batch_adjust: ", paste(lines, collapse = "; "), ". See ?guard_fit."),
+              "bioLeak_batch_confounded_warning")
+  }
+
+  # one summary warning for survival folds whose prediction direction was undecided
+  sund <- lapply(out, function(r) attr(r, "surv_undecided"))
+  n_sund <- sum(vapply(sund, length, integer(1)) > 0L)
+  if (n_sund > 0L) {
+    .bio_warn(sprintf(paste0(
+      "survival: in %d of %d folds it could not be decided whether the model's predictions rise ",
+      "with risk or with survival time (%s); those folds' predictions are NA and they are left ",
+      "out of the metrics."), n_sund, nfold_run, paste(unique(unlist(sund)), collapse = "; ")),
+      "bioLeak_fold_warning")
+  }
 
   # collect results -----------------------------------------------------------
   met_rows <- list()
@@ -1416,6 +1650,8 @@ fit_resample <- function(x, outcome, splits,
       status = if (learner_success > 0L) "success" else "skipped",
       reason = if (learner_success > 0L) NA_character_ else if (all_preds_empty) {
         "single_class_training"
+      } else if (length(attr(fold_res, "surv_undecided"))) {
+        "survival_direction_undecided"
       } else {
         "no_valid_metrics"
       },
@@ -1443,7 +1679,29 @@ fit_resample <- function(x, outcome, splits,
   fold_status_df <- do.call(rbind, fold_status_rows)
 
   if (!length(met_rows)) {
-    .bio_stop("No successful folds were completed. Check learner and preprocessing settings.",
+    errs <- unique(stats::na.omit(c(fold_errors,
+      unlist(lapply(out, function(r) attr(r, "fold_error") %||% NA_character_)))))
+    errs <- unique(trimws(gsub("[[:space:]]*\n[[:space:]]*", " ", errs)))
+    n_more <- max(0L, length(errs) - 3L)
+    reason_text <- c(
+      single_class_training = "the training fold held a single outcome class, so no model was fitted",
+      survival_direction_undecided = paste0("the direction of the survival predictions could not ",
+                                            "be decided on the training fold"),
+      no_valid_metrics = paste0("every requested metric was NA (for example AUC or PR-AUC on a ",
+                                "single-class test fold, or a C-index with no comparable pairs)"))
+    skip_reasons <- if (!is.null(fold_status_df)) {
+      tab <- table(fold_status_df$reason[fold_status_df$status == "skipped"])
+      vapply(names(tab), function(r) sprintf("%d fold%s: %s", tab[[r]], if (tab[[r]] > 1L) "s" else "",
+                                              reason_text[[r]] %||% r), character(1))
+    } else character()
+    .bio_stop(paste0("No successful folds were completed. Check learner and preprocessing settings.",
+                     if (length(errs)) paste0(" Fold error", if (length(errs) > 1L) "s" else "", ": ",
+                                              paste(utils::head(errs, 3L), collapse = " | "),
+                                              if (n_more) sprintf(" (and %d more)", n_more) else "",
+                                              if (!n_more && grepl("[.!?]$", utils::tail(utils::head(errs, 3L), 1L))) "" else ".")
+                     else "",
+                     if (length(skip_reasons)) paste0(" Skipped ", paste(skip_reasons, collapse = "; "), ".")
+                     else ""),
               "bioLeak_fit_error")
   }
 
@@ -1471,15 +1729,16 @@ fit_resample <- function(x, outcome, splits,
 
   # confidence intervals -------------------------------------------------------
   tryCatch({
-    avg_n_train <- mean(audit_df$n_train, na.rm = TRUE)
-    avg_n_test <- mean(audit_df$n_test, na.rm = TRUE)
-    ci_df <- cv_ci(met_df, method = "nadeau_bengio",
-                   n_train = avg_n_train, n_test = avg_n_test)
+    # sizes, folds per repeat and repeated test sets come from the splits
+    ci_df <- cv_ci(methods::new("LeakFit", splits = splits, metrics = met_df),
+                   method = "nadeau_bengio")
     # merge CI columns into metric_summary
     ci_cols <- grep("_ci_lo$|_ci_hi$", names(ci_df), value = TRUE)
-    if (length(ci_cols) && nrow(ci_df) == nrow(metric_summary)) {
+    if (length(ci_cols)) {
+      # cv_ci() keeps learners in input order, aggregate() sorts them: match by name
+      row_idx <- match(as.character(metric_summary$learner), as.character(ci_df$learner))
       for (cc in ci_cols) {
-        metric_summary[[cc]] <- ci_df[[cc]]
+        metric_summary[[cc]] <- ci_df[[cc]][row_idx]
       }
     }
   }, error = function(e) NULL)
@@ -1492,8 +1751,37 @@ fit_resample <- function(x, outcome, splits,
     learner_obj <- learner_objs[[1]]
     full_weights <- if (task %in% c("binomial", "multiclass")) resolve_weights(yall, class_weights) else NULL
     if (identical(preprocess_mode, "guard")) {
-      guard_full <- guard_fit(Xall, yall, preprocess, task)
-      Xfullg <- guard_full$transform(Xall)
+      steps_full <- if (is.list(preprocess)) preprocess else list()
+      b_full_vec <- NULL
+      b_cfg_full <- steps_full[["batch_adjust"]]
+      if (!is.null(b_cfg_full) && !identical(b_cfg_full[["method"]] %||% "none", "none")) {
+        b_col_full <- b_cfg_full[["batch_col"]] %||% (if (inherits(splits, "LeakSplits")) splits@info$batch else NULL)
+        if (!is.null(b_cfg_full[["batch"]]) && length(b_cfg_full[["batch"]]) == nrow(Xall_raw)) {
+          b_full_vec <- b_cfg_full[["batch"]]
+        } else if (!is.null(b_col_full)) {
+          if (!is.null(colnames(Xall)) && b_col_full %in% colnames(Xall)) {
+            b_full_vec <- Xall[, b_col_full]
+          } else if (!is.null(colnames(Xall_raw)) && b_col_full %in% colnames(Xall_raw)) {
+            b_full_vec <- Xall_raw[, b_col_full]
+          } else if (!is.null(split_coldata) && b_col_full %in% names(split_coldata)) {
+            b_full_vec <- split_coldata[[b_col_full]]
+          }
+        }
+        if (!is.null(b_full_vec)) {
+          steps_full$batch_adjust$batch <- b_full_vec
+        }
+      }
+      # Batch diagnostics were already reported once across the folds above.
+      mute <- function(w) invokeRestart("muffleWarning")
+      guard_full <- withCallingHandlers(
+        guard_fit(Xall, yall, steps_full, task),
+        bioLeak_missing_batch_warning = mute, bioLeak_batch_confounded_warning = mute,
+        bioLeak_batch_single_warning = mute
+      )
+      Xfullg <- withCallingHandlers(
+        guard_full$transform(Xall, batch = b_full_vec),
+        bioLeak_unseen_batch_warning = mute
+      )
       colnames(Xfullg) <- make.names(colnames(Xfullg))
       final_model <- train_one_learner(learner_obj, ln, Xfullg, yall, Xfullg, yall,
                                        weights = full_weights)$fit
@@ -1501,6 +1789,10 @@ fit_resample <- function(x, outcome, splits,
     } else if (identical(preprocess_mode, "recipe")) {
       df_full <- make_fold_df(Xall_raw, yall)
       recipe_prep <- recipes::prep(preprocess, training = df_full, retain = TRUE)
+      meta_derived <- .bio_recipe_meta_derived(recipe_prep, df_full, setdiff(drop_cols, outcome))
+      if (length(meta_derived)) {
+        .bio_stop_meta_derived(meta_derived, setdiff(drop_cols, outcome))
+      }
       Xfullg <- as.data.frame(recipes::juice(recipe_prep, recipes::all_predictors()),
                               check.names = FALSE)
       if (length(drop_cols)) {
@@ -1512,8 +1804,14 @@ fit_resample <- function(x, outcome, splits,
                                        weights = full_weights)$fit
       final_guard <- list(type = "recipe", recipe = recipe_prep)
     } else {
-      df_full <- make_fold_df(Xall, yall)
+      df_full <- make_fold_df(if (wf_raw[1]) Xall_raw else Xall, yall)
       final_model <- generics::fit(learner_obj, data = df_full)
+      if (wf_raw[1] && length(.bio_recipe_meta_derived(workflows::extract_recipe(final_model), df_full,
+                                                         setdiff(drop_cols, outcome)))) {
+        .bio_stop_meta_derived(.bio_recipe_meta_derived(workflows::extract_recipe(final_model), df_full,
+                                                        setdiff(drop_cols, outcome)),
+                               setdiff(drop_cols, outcome), "The workflow's recipe")
+      }
       final_guard <- list(type = "workflow")
     }
   }
@@ -1531,7 +1829,8 @@ fit_resample <- function(x, outcome, splits,
         class_weights = class_weights,
         positive_class = positive_class,
         classification_threshold = classification_threshold,
-        parallel = parallel
+        parallel = parallel,
+        id_cols = id_cols
       )
     }
 
@@ -1560,6 +1859,7 @@ fit_resample <- function(x, outcome, splits,
                   final_model = final_model,
                   final_preprocess = final_guard,
                   learner_names = learner_names,
+                  id_cols = id_cols,
                   perm_refit_spec = perm_refit_spec,
                   provenance = .bio_capture_provenance()))
 }
@@ -1637,3 +1937,49 @@ setMethod("show", "LeakFit", function(object) {
   cat("Use summary(<obj>) for the full diagnostic report.\n")
   invisible(object)
 })
+
+
+# Risk scores from a parsnip/censored survival fit. bioLeak scores survival
+# predictions as risk (higher = shorter survival). parsnip's "linear_pred" and
+# "time" outputs have no fixed orientation across engines (e.g. Cox
+# linear_pred and survreg time rise with survival, censored rpart "time"
+# rises with hazard), so the orientation is decided on the training fold only:
+# if the training-fold predictions are concordant with longer survival
+# (C >= 0.5 on the "higher = longer" scale), they are negated. Constant
+# predictions need no direction. When the direction cannot be decided (no
+# comparable training pairs, e.g. an all-censored training fold, or a
+# training C of exactly 0.5), the fold's predictions are NA and carry the
+# reason in attr "surv_undecided"; fit_resample() reports these once.
+.bio_surv_risk_pred <- function(fit, new_test, new_train, ytr, what = "Learner") {
+  pred_one <- function(nd) {
+    out <- try(stats::predict(fit, new_data = nd, type = "linear_pred"), silent = TRUE)
+    if (inherits(out, "try-error")) {
+      out <- try(stats::predict(fit, new_data = nd, type = "time"), silent = TRUE)
+    }
+    if (inherits(out, "try-error")) {
+      stop(sprintf("%s failed to predict: %s", what,
+                   conditionMessage(attr(out, "condition"))), call. = FALSE)
+    }
+    as.numeric(as.data.frame(out)[[1]])
+  }
+  pred_te <- pred_one(new_test)
+  if (length(unique(stats::na.omit(pred_te))) <= 1L) return(pred_te)
+  undecided <- function(why) {
+    structure(rep(NA_real_, length(pred_te)), surv_undecided = why)
+  }
+  if (is.null(ytr) || !inherits(ytr, "Surv")) return(undecided("no training outcome available"))
+  pred_tr <- try(pred_one(new_train), silent = TRUE)
+  if (inherits(pred_tr, "try-error") || length(pred_tr) != NROW(ytr)) {
+    return(undecided("training-fold prediction failed"))
+  }
+  if (length(unique(stats::na.omit(pred_tr))) <= 1L) {
+    return(undecided("training-fold predictions are constant"))
+  }
+  cc <- try(suppressWarnings(survival::concordance(
+    ytr ~ pred_tr, data = data.frame(pred_tr = pred_tr))$concordance), silent = TRUE)
+  if (inherits(cc, "try-error") || !is.finite(cc)) {
+    return(undecided("no comparable pairs in the training fold"))
+  }
+  if (cc == 0.5) return(undecided("training-fold C-index is exactly 0.5"))
+  if (cc >= 0.5) -pred_te else pred_te
+}
